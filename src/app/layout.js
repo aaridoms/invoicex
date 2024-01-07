@@ -9,6 +9,7 @@ const inter = Inter({ subsets: ['latin'] })
 export const metadata = {
   title: 'InvoiceX',
   description: 'Make easy invoices for your clients',
+  image: './favicon.ico',
 }
 
 export default function RootLayout({ children }) {
