@@ -1,7 +1,7 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
-export default function generatePdf(nFactura, fecha, cliente, cif, direccion, ciudad, concepto, precio) {
+export default function generatePdf({nFactura, fecha, cliente, cif, direccion, ciudad, concepto, precio}) {
   const doc = new jsPDF();
 
   doc.text("Ensupunto", 14, 15);

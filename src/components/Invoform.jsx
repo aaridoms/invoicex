@@ -31,7 +31,7 @@ export default function Invoform() {
         return
       }
 
-    generatePDF(nFactura, fecha, cliente, cif, direccion, ciudad, concepto, precio)
+    generatePDF({nFactura, fecha, cliente, cif, direccion, ciudad, concepto, precio})
   }
 
   const handleNFacturaChange = (e) => {
@@ -72,18 +72,6 @@ export default function Invoform() {
 
   const handlePrecioChange = (e) => {
     setPrecio(e.target.value)
-  }
-
-  const handleImpuestosChange = (e) => {
-    setImpuestos(e.target.value)
-  }
-
-  const handleIvaChange = (e) => {
-    setIva(e.target.value)
-  }
-
-  const handleTotalChange = (e) => {
-    setTotal(e.target.value)
   }
 
   return (
