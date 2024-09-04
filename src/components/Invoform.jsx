@@ -2,8 +2,6 @@
 
 import {useState} from 'react'
 import Toast from './Toast'
-import {Input} from "@nextui-org/react";
-import {Button, ButtonGroup} from "@nextui-org/react";
 import generatePDF from '@/app/helpers/generatePDF';
 
 export default function Invoform() {
@@ -77,27 +75,27 @@ export default function Invoform() {
   return (
     <form onSubmit={handleSubmit} >
       <div className='flex items-center gap-5 flex-row mb-5'>
-        <Input type="number" name="nFactura" label="NFactura" value={nFactura} onChange={handleNFacturaChange} isRequired />
-        <Input type="date" name="fecha"  value={fecha} onChange={handleFechaChange} isRequired />
+        <input type="number" name="nFactura" label="NFactura" placeholder='NFactura' value={nFactura} onChange={handleNFacturaChange} isRequired class="border border-gray-300 p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+        <input type="date" name="fecha"  value={fecha} onChange={handleFechaChange} isRequired class="border border-gray-300 p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-700" />
       </div>
-      <div className='flex items-center gap-5 flex-row mb-5'>
-        <Input type="text" name="client" label="Cliente" value={cliente} onChange={handleClienteChange} isRequired />
-        <Input type="text" name="cif" label="CIF" value={cif} onChange={handleCifChange} isRequired />
-      </div>
-      <div className='flex items-center gap-5 flex-row mb-5'>
-        <Input type="text" name="direccion" label="Direccion" value={direccion} onChange={handleDireccionChange} />
-        <Input type="text" name="ciudad" label="Ciudad" value={ciudad} onChange={handleCiudadChange} />
-      </div>
-      <div className='flex items-center gap-5 flex-row mb-5'>
-        <Input type="text" name="concepto" label="Concepto" value={concepto} onChange={handleConceptoChange} isRequired />
-        <Input type="number" name="precio" label="Precio" value={precio} onChange={handlePrecioChange} isRequired />
-      </div>
+      <diI className='flex items-center gap-5 flex-row mb-5'>
+        <input type="text" name="client" label="Cliente" placeholder='Cliente' value={cliente} onChange={handleClienteChange} isRequired class="border border-gray-300 p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        <input type="text" name="cif" label="CIF" placeholder='CIF' value={cif} onChange={handleCifChange} isRequired class="border border-gray-300 p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500" />
+      </diI>
+      <diI className='flex items-center gap-5 flex-row mb-5'>
+        <input type="text" name="direccion" label="Direccion" placeholder='Dirección' value={direccion} onChange={handleDireccionChange} class="border border-gray-300 p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        <input type="text" name="ciudad" label="Ciudad" placeholder='Ciudad' value={ciudad} onChange={handleCiudadChange} class="border border-gray-300 p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500" />
+      </diI>
+      <diI className='flex items-center gap-5 flex-row mb-5'>
+        <input type="text" name="concepto" label="Concepto" placeholder='Concepto' value={concepto} onChange={handleConceptoChange} isRequired class="border border-gray-300 p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        <input type="number" name="precio" label="Precio" placeholder='Cantidad' value={precio} onChange={handlePrecioChange} isRequired class="border border-gray-300 p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500" />
+      </diI>
 
-      <ButtonGroup className='flex '>
-        <Button type="submit" color="primary" variant='bordered'>PDF</Button>
-      </ButtonGroup>
+      <div className='flex justify-center'>
+        <button type="submit" color='primary' variant='bordered' class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">PDF</button>
+      </div>
       <div className='flex items-center justify-center pt-5'>
-        {show ? <Toast /> : null}
+        {show ? <Toast message="Tienes que rellenar todos los campos" type='warning' /> : null}
       </div>
     </form>
   )
