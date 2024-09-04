@@ -45,5 +45,5 @@ export default function generatePdf({nFactura, fecha, cliente, cif, direccion, c
     tableWidth: 180,
   });
 
-  doc.save(`invoice_${nFactura}_${cliente}.pdf`);
+  doc.save(`invoice_${nFactura}.pdf`);
 }

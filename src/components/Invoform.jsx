@@ -28,8 +28,14 @@ export default function Invoform() {
 
         return
       }
+    
+      const formattedFecha = new Date(fecha).toLocaleDateString('es-ES', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      });
 
-    generatePDF({nFactura, fecha, cliente, cif, direccion, ciudad, concepto, precio})
+    generatePDF({nFactura, fecha: formattedFecha, cliente, cif, direccion, ciudad, concepto, precio})
   }
 
   const handleNFacturaChange = (e) => {
