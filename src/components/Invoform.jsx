@@ -1,336 +1,517 @@
 "use client";
 
-import generatePDF from "@/app/helpers/generatePDF";
+import generateInvoice, { invoicePreviewData } from "@/app/helpers/generatePDF";
+import {
+  DEFAULT_VAT,
+  VAT_RATES,
+  computeInvoice,
+  formatEuro,
+} from "@/app/helpers/invoiceMath";
+import {
+  DUPLICATE_KEY,
+  invoiceExists,
+  suggestNextInvoiceNumber,
+} from "@/app/helpers/invoicesStore";
+import { withOptimizedLogo } from "@/app/helpers/logo";
 import { getSettings } from "@/app/helpers/settingsStore";
-import { useState } from "react";
-import Toast from "./Toast";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { IconPlus, IconTrash } from "./icons";
+import PdfPreview from "./PdfPreview";
+import {
+  Button,
+  Card,
+  Field,
+  Input,
+  PageHeader,
+  Select,
+  Textarea,
+  Toast,
+} from "./ui";
+
+const todayISO = () => {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
+let lineSeq = 0;
+// La primera línea lleva un id fijo para que coincida entre el render del
+// servidor y el del navegador (evita errores de hidratación).
+const newLine = (id = `l${Date.now()}_${lineSeq++}`) => ({
+  id,
+  concepto: "",
+  cantidad: "1",
+  precio: "",
+  iva: DEFAULT_VAT,
+});
+
+const EMPTY_CLIENT = { nombre: "", cif: "", direccion: "", ciudad: "" };
 
 export default function Invoform() {
-  const [show, setShow] = useState(false);
-  const [clearMsg, setClearMsg] = useState("");
-  const [profileErr, setProfileErr] = useState("");
+  // undefined = aún no leído; null = no hay compañía configurada
+  const [settings, setSettings] = useState(undefined);
   const [nFactura, setNFactura] = useState("");
   const [fecha, setFecha] = useState("");
-  const [cliente, setCliente] = useState("");
-  const [cif, setCif] = useState("");
-  const [direccion, setDireccion] = useState("");
-  const [ciudad, setCiudad] = useState("");
-  const [concepto, setConcepto] = useState("");
-  const [precio, setPrecio] = useState("");
+  const [cliente, setCliente] = useState(EMPTY_CLIENT);
+  const [items, setItems] = useState(() => [newLine("line-1")]);
+  const [pricesIncludeVat, setPricesIncludeVat] = useState(false);
+  const [notas, setNotas] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [toast, setToast] = useState(null);
+  const [previewData, setPreviewData] = useState(null);
+  const toastTimer = useRef(null);
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-
-    // Validar que exista un perfil activo
-    const activeProfile = getSettings();
-    if (!activeProfile) {
-      setProfileErr(
-        "Debes seleccionar o crear una compañía activa en Configuración"
-      );
-      setTimeout(() => setProfileErr(""), 4000);
-      return;
-    }
-
-    if (nFactura === "" || fecha === "") {
-      setShow(true);
-
-      setTimeout(() => {
-        setShow(false);
-      }, 5000);
-
-      return;
-    }
-
-    const formattedFecha = new Date(fecha).toLocaleDateString("es-ES", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    });
-
-    generatePDF({
-      nFactura,
-      fecha: formattedFecha,
-      cliente,
-      cif,
-      direccion,
-      ciudad,
-      concepto,
-      precio,
-    });
+  const notify = (message, type = "success", ms = 4500) => {
+    clearTimeout(toastTimer.current);
+    setToast({ message, type });
+    toastTimer.current = setTimeout(() => setToast(null), ms);
   };
 
-  const handleNFacturaChange = (e) => {
-    setNFactura(e.target.value);
-  };
-
-  const handleFechaChange = (e) => {
-    setFecha(e.target.value);
-  };
-
-  const handleClienteChange = (e) => {
-    setCliente(e.target.value);
-  };
-
-  const handleCifChange = (e) => {
-    setCif(e.target.value);
-  };
-
-  const handleDireccionChange = (e) => {
-    setDireccion(e.target.value);
-  };
-
-  const handleCiudadChange = (e) => {
-    setCiudad(e.target.value);
-  };
-
-  const handleConceptoChange = (e) => {
-    setConcepto(e.target.value);
-  };
-
-  const handlePrecioChange = (e) => {
-    setPrecio(e.target.value);
-  };
-
-  const handleClear = () => {
-    setShow(false);
-    setClearMsg("");
-    setNFactura("");
-    setFecha("");
-    setCliente("");
-    setCif("");
-    setDireccion("");
-    setCiudad("");
-    setConcepto("");
-    setPrecio("");
-
-    // Scroll al inicio del formulario
+  const prefillInvoiceData = useCallback(async () => {
+    setFecha(todayISO());
     try {
-      const formEl = document.querySelector("form");
-      formEl?.scrollIntoView({ behavior: "smooth", block: "start" });
-    } catch (e) {}
+      setNFactura(await suggestNextInvoiceNumber());
+    } catch {
+      // Sin IndexedDB no hay sugerencia; el usuario escribe el número
+    }
+  }, []);
 
-    // Mostrar toast breve de éxito
-    setClearMsg("Formulario restablecido");
-    setTimeout(() => setClearMsg(""), 2500);
+  useEffect(() => {
+    prefillInvoiceData();
+
+    // Factura duplicada desde el historial: se copian cliente, conceptos
+    // y notas; número y fecha son siempre nuevos.
+    try {
+      const raw = sessionStorage.getItem(DUPLICATE_KEY);
+      if (raw) {
+        sessionStorage.removeItem(DUPLICATE_KEY);
+        const { from, invoice: src } = JSON.parse(raw);
+        setCliente({ ...EMPTY_CLIENT, ...src.cliente });
+        setItems(
+          src.items?.length
+            ? src.items.map((it) => ({ ...newLine(), ...it, id: newLine().id }))
+            : [newLine()]
+        );
+        setPricesIncludeVat(!!src.pricesIncludeVat);
+        setNotas(src.notas || "");
+        notify(`Datos copiados de la factura ${from}`);
+      }
+    } catch {
+      // Si la copia está dañada, se empieza con el formulario vacío
+    }
+
+    const loadSettings = () => setSettings(getSettings());
+    loadSettings();
+    window.addEventListener("invoicex:settings-changed", loadSettings);
+    return () =>
+      window.removeEventListener("invoicex:settings-changed", loadSettings);
+  }, [prefillInvoiceData]);
+
+  const invoice = useMemo(
+    () => ({
+      nFactura: nFactura.trim(),
+      fecha,
+      cliente,
+      items,
+      pricesIncludeVat,
+      notas,
+    }),
+    [nFactura, fecha, cliente, items, pricesIncludeVat, notas]
+  );
+
+  const calc = useMemo(
+    () => computeInvoice(items, { pricesIncludeVat }),
+    [items, pricesIncludeVat]
+  );
+
+  // Ajustes para el PDF con el logo ya optimizado (se calcula una vez por
+  // logo; ver helpers/logo.js). undefined mientras se prepara.
+  const [pdfSettings, setPdfSettings] = useState(undefined);
+  useEffect(() => {
+    if (settings === undefined) return;
+    let cancelled = false;
+    withOptimizedLogo(settings).then((s) => {
+      if (!cancelled) setPdfSettings(s);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [settings]);
+
+  // Vista previa en vivo (con un pequeño retardo para no regenerar en cada tecla)
+  useEffect(() => {
+    if (pdfSettings === undefined) return;
+    const t = setTimeout(() => {
+      try {
+        setPreviewData(invoicePreviewData(invoice, pdfSettings));
+      } catch (err) {
+        // La vista previa nunca debe romper el formulario
+        console.error("Vista previa PDF:", err);
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [invoice, pdfSettings]);
+
+  const updateCliente = (field) => (e) =>
+    setCliente((c) => ({ ...c, [field]: e.target.value }));
+
+  const updateItem = (id, field, value) =>
+    setItems((list) =>
+      list.map((it) => (it.id === id ? { ...it, [field]: value } : it))
+    );
+
+  const focusNewLine = useRef(false);
+  const formRef = useRef(null);
+
+  const addItem = () => {
+    focusNewLine.current = true;
+    setItems((list) => [...list, newLine()]);
+  };
+
+  // Al añadir una línea, el cursor salta a su descripción
+  useEffect(() => {
+    if (!focusNewLine.current) return;
+    focusNewLine.current = false;
+    const inputs = formRef.current?.querySelectorAll("[data-line-id]");
+    inputs?.[inputs.length - 1]?.focus();
+  }, [items.length]);
+
+  const removeItem = (id) =>
+    setItems((list) =>
+      list.length === 1 ? [newLine()] : list.filter((it) => it.id !== id)
+    );
+
+  const resetForm = () => {
+    setCliente(EMPTY_CLIENT);
+    setItems([newLine()]);
+    setNotas("");
+    setPricesIncludeVat(false);
+    prefillInvoiceData();
+  };
+
+  const validate = () => {
+    if (!settings) return "Configura primero la compañía emisora.";
+    const missing = [];
+    if (!invoice.nFactura) missing.push("número");
+    if (!fecha) missing.push("fecha");
+    if (!cliente.nombre.trim()) missing.push("cliente");
+    if (calc.lines.length === 0) missing.push("al menos un concepto");
+    return missing.length ? `Falta: ${missing.join(", ")}.` : "";
+  };
+
+  const handleSubmit = async (e) => {
+    e?.preventDefault();
+    if (submitting) return;
+    const problem = validate();
+    if (problem) {
+      notify(problem, "warning");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      if (await invoiceExists(invoice.nFactura)) {
+        notify(
+          `Ya existe la factura ${invoice.nFactura}. Usa otro número para no sobrescribirla.`,
+          "error",
+          6000
+        );
+        return;
+      }
+      const { filename } = await generateInvoice(
+        invoice,
+        await withOptimizedLogo(settings)
+      );
+      notify(`Factura guardada y descargada: ${filename}`);
+      resetForm();
+    } catch (err) {
+      notify(err?.message || "No se pudo generar la factura", "error", 6000);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Enter no envía el formulario (evita facturas accidentales).
+  // Enter en el último concepto añade una línea; Ctrl+Enter genera el PDF.
+  const handleKeyDown = (e) => {
+    if (e.key !== "Enter" || e.target.tagName === "TEXTAREA") return;
+    if (e.ctrlKey || e.metaKey) {
+      handleSubmit(e);
+      return;
+    }
+    if (e.target.tagName === "INPUT") {
+      e.preventDefault();
+      const lines = e.currentTarget.querySelectorAll("[data-line-id]");
+      if (e.target === lines[lines.length - 1]) addItem();
+    }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="max-w-3xl mx-auto p-4 sm:p-6">
-      <div className="rounded-2xl border border-gray-200 bg-white/80 shadow-sm backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/60">
-        <div className="px-4 py-5 sm:px-6 border-b border-gray-100 dark:border-zinc-800">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-            Generar factura
-          </h2>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Completa los datos para crear el PDF de tu factura.
-          </p>
-        </div>
-
-        <div className="p-4 sm:p-6 space-y-6">
-          {/* Datos de factura */}
-          <div>
-            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-              Datos de factura
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label
-                  htmlFor="nFactura"
-                  className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  Nº de factura
-                </label>
-                <input
-                  id="nFactura"
-                  type="number"
-                  name="nFactura"
-                  placeholder="0001"
-                  value={nFactura}
-                  onChange={handleNFacturaChange}
-                  required
-                  className="mt-1 block w-full rounded-lg border border-gray-300 bg-white/90 px-3 py-2 text-gray-900 placeholder-gray-400 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-gray-100"
-                />
-              </div>
-              <div>
-                <label
-                  htmlFor="fecha"
-                  className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  Fecha
-                </label>
-                <input
-                  id="fecha"
-                  type="date"
-                  name="fecha"
-                  value={fecha}
-                  onChange={handleFechaChange}
-                  required
-                  className="mt-1 block w-full rounded-lg border border-gray-300 bg-white/90 px-3 py-2 text-gray-900 placeholder-gray-400 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-gray-100"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Datos del cliente */}
-          <div>
-            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-              Datos del cliente
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label
-                  htmlFor="cliente"
-                  className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  Cliente
-                </label>
-                <input
-                  id="cliente"
-                  type="text"
-                  name="cliente"
-                  placeholder="Nombre o empresa"
-                  value={cliente}
-                  onChange={handleClienteChange}
-                  required
-                  className="mt-1 block w-full rounded-lg border border-gray-300 bg-white/90 px-3 py-2 text-gray-900 placeholder-gray-400 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-gray-100"
-                />
-              </div>
-              <div>
-                <label
-                  htmlFor="cif"
-                  className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  CIF/NIF
-                </label>
-                <input
-                  id="cif"
-                  type="text"
-                  name="cif"
-                  placeholder="B12345678"
-                  value={cif}
-                  onChange={handleCifChange}
-                  required
-                  className="mt-1 block w-full rounded-lg border border-gray-300 bg-white/90 px-3 py-2 text-gray-900 placeholder-gray-400 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-gray-100"
-                />
-              </div>
-              <div>
-                <label
-                  htmlFor="direccion"
-                  className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  Dirección
-                </label>
-                <input
-                  id="direccion"
-                  type="text"
-                  name="direccion"
-                  placeholder="Calle, número, piso"
-                  value={direccion}
-                  onChange={handleDireccionChange}
-                  className="mt-1 block w-full rounded-lg border border-gray-300 bg-white/90 px-3 py-2 text-gray-900 placeholder-gray-400 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-gray-100"
-                />
-              </div>
-              <div>
-                <label
-                  htmlFor="ciudad"
-                  className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  Ciudad
-                </label>
-                <input
-                  id="ciudad"
-                  type="text"
-                  name="ciudad"
-                  placeholder="Ciudad, Provincia"
-                  value={ciudad}
-                  onChange={handleCiudadChange}
-                  className="mt-1 block w-full rounded-lg border border-gray-300 bg-white/90 px-3 py-2 text-gray-900 placeholder-gray-400 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-gray-100"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Concepto */}
-          <div>
-            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-              Detalle
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="md:col-span-1">
-                <label
-                  htmlFor="concepto"
-                  className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  Concepto
-                </label>
-                <input
-                  id="concepto"
-                  type="text"
-                  name="concepto"
-                  placeholder="Descripción del servicio o producto"
-                  value={concepto}
-                  onChange={handleConceptoChange}
-                  required
-                  className="mt-1 block w-full rounded-lg border border-gray-300 bg-white/90 px-3 py-2 text-gray-900 placeholder-gray-400 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-gray-100"
-                />
-              </div>
-              <div className="md:col-span-1">
-                <label
-                  htmlFor="precio"
-                  className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  Precio
-                </label>
-                <div className="mt-1 relative">
-                  <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
-                    €
-                  </div>
-                  <input
-                    id="precio"
-                    type="number"
-                    inputMode="decimal"
-                    step="0.01"
-                    min="0"
-                    name="precio"
-                    placeholder="0.00"
-                    value={precio}
-                    onChange={handlePrecioChange}
-                    required
-                    className="block w-full rounded-lg border border-gray-300 bg-white/90 pl-8 pr-3 py-2 text-gray-900 placeholder-gray-400 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-gray-100"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="pt-2 flex justify-end gap-3">
-            <button
-              type="button"
-              onClick={handleClear}
-              className="inline-flex items-center gap-2 rounded-lg bg-transparent border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 dark:text-gray-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
-            >
+    <div className="mx-auto max-w-[1440px] px-8 py-7">
+      <PageHeader
+        title="Nueva factura"
+        description={
+          settings === undefined ? (
+            " " // cargando ajustes: reservar la línea sin mostrar avisos
+          ) : settings ? (
+            <>
+              Emitida por{" "}
+              <span className="text-fg">
+                {settings.companyName || settings.brandTitle}
+              </span>
+            </>
+          ) : (
+            <>
+              No hay compañía emisora.{" "}
+              <Link href="/settings" className="text-accent hover:underline">
+                Configúrala aquí
+              </Link>
+            </>
+          )
+        }
+        actions={
+          <>
+            <Button variant="ghost" onClick={resetForm}>
               Limpiar
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
               type="submit"
-              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:opacity-50"
+              form="invoice-form"
+              disabled={submitting}
             >
-              Generar PDF
-            </button>
+              {submitting ? "Generando…" : "Generar PDF"}
+            </Button>
+          </>
+        }
+      />
+
+      <div className="grid items-start gap-6 min-[1400px]:grid-cols-[minmax(0,1fr)_minmax(360px,0.8fr)]">
+        <form
+          id="invoice-form"
+          ref={formRef}
+          onSubmit={handleSubmit}
+          onKeyDown={handleKeyDown}
+          className="space-y-5"
+          noValidate
+        >
+          <div className="grid grid-cols-[3fr_2fr] gap-5">
+            <Card title="Factura">
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Número" htmlFor="nFactura">
+                  <Input
+                    id="nFactura"
+                    value={nFactura}
+                    onChange={(e) => setNFactura(e.target.value)}
+                    placeholder="2026-0001"
+                    autoComplete="off"
+                    className="tabular"
+                  />
+                </Field>
+                <Field label="Fecha" htmlFor="fecha">
+                  <Input
+                    id="fecha"
+                    type="date"
+                    value={fecha}
+                    onChange={(e) => setFecha(e.target.value)}
+                  />
+                </Field>
+              </div>
+            </Card>
+
+            <Card title="Resumen">
+              <dl className="space-y-1.5 text-sm tabular">
+                <div className="flex justify-between text-muted">
+                  <dt>Base imponible</dt>
+                  <dd>{formatEuro(calc.base)}</dd>
+                </div>
+                <div className="flex justify-between text-muted">
+                  <dt>IVA</dt>
+                  <dd>{formatEuro(calc.cuota)}</dd>
+                </div>
+                <div className="flex justify-between pt-1 text-base font-semibold">
+                  <dt>Total</dt>
+                  <dd className="text-accent">{formatEuro(calc.total)}</dd>
+                </div>
+              </dl>
+            </Card>
           </div>
-        </div>
+
+          <Card title="Cliente">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Nombre o razón social" htmlFor="cliente">
+                <Input
+                  id="cliente"
+                  value={cliente.nombre}
+                  onChange={updateCliente("nombre")}
+                  placeholder="Empresa S.L."
+                />
+              </Field>
+              <Field label="NIF/CIF" htmlFor="cif">
+                <Input
+                  id="cif"
+                  value={cliente.cif}
+                  onChange={updateCliente("cif")}
+                  placeholder="B12345678"
+                />
+              </Field>
+              <Field label="Dirección" htmlFor="direccion">
+                <Input
+                  id="direccion"
+                  value={cliente.direccion}
+                  onChange={updateCliente("direccion")}
+                  placeholder="Calle, número, piso"
+                />
+              </Field>
+              <Field label="Código postal y ciudad" htmlFor="ciudad">
+                <Input
+                  id="ciudad"
+                  value={cliente.ciudad}
+                  onChange={updateCliente("ciudad")}
+                  placeholder="41010 Sevilla"
+                />
+              </Field>
+            </div>
+          </Card>
+
+          <Card
+            title="Conceptos"
+            actions={
+              <label className="flex cursor-pointer select-none items-center gap-2 text-xs text-muted">
+                <input
+                  type="checkbox"
+                  checked={pricesIncludeVat}
+                  onChange={(e) => setPricesIncludeVat(e.target.checked)}
+                  className="h-3.5 w-3.5 accent-[rgb(var(--accent))]"
+                />
+                Precios con IVA incluido
+              </label>
+            }
+          >
+            <div className="grid grid-cols-[minmax(140px,1fr)_56px_92px_72px_88px_28px] gap-2 px-0.5 pb-2 text-[11px] font-medium uppercase tracking-wider text-muted">
+              <span>Descripción</span>
+              <span className="text-right">Cant.</span>
+              <span className="text-right">
+                {pricesIncludeVat ? "Precio c/IVA" : "Precio"}
+              </span>
+              <span>IVA</span>
+              <span className="text-right">Importe</span>
+              <span />
+            </div>
+
+            <div className="space-y-2">
+              {items.map((it) => {
+                const line = calc.lines.find((l) => l.id === it.id);
+                return (
+                  <div
+                    key={it.id}
+                    className="group grid grid-cols-[minmax(140px,1fr)_56px_92px_72px_88px_28px] items-center gap-2"
+                  >
+                    <Input
+                      aria-label="Descripción"
+                      data-line-id={it.id}
+                      value={it.concepto}
+                      onChange={(e) =>
+                        updateItem(it.id, "concepto", e.target.value)
+                      }
+                      placeholder="Menú del día, comida de grupo…"
+                    />
+                    <Input
+                      aria-label="Cantidad"
+                      inputMode="decimal"
+                      value={it.cantidad}
+                      onChange={(e) =>
+                        updateItem(it.id, "cantidad", e.target.value)
+                      }
+                      className="text-right tabular"
+                    />
+                    <Input
+                      aria-label="Precio"
+                      inputMode="decimal"
+                      value={it.precio}
+                      onChange={(e) =>
+                        updateItem(it.id, "precio", e.target.value)
+                      }
+                      placeholder="0,00"
+                      className="text-right tabular"
+                    />
+                    <Select
+                      aria-label="IVA"
+                      className="!px-2 tabular"
+                      value={it.iva}
+                      onChange={(e) =>
+                        updateItem(it.id, "iva", Number(e.target.value))
+                      }
+                    >
+                      {VAT_RATES.map((r) => (
+                        <option key={r} value={r}>
+                          {r}%
+                        </option>
+                      ))}
+                    </Select>
+                    <span className="text-right text-sm tabular text-fg">
+                      {line ? formatEuro(line.base) : "—"}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeItem(it.id)}
+                      aria-label="Eliminar línea"
+                      className="opacity-40 group-hover:opacity-100 hover:!text-danger"
+                    >
+                      <IconTrash />
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="mt-4 flex items-start justify-between gap-6">
+              <Button variant="secondary" size="sm" onClick={addItem}>
+                <IconPlus className="h-3.5 w-3.5" />
+                Añadir línea
+              </Button>
+              <dl className="w-64 space-y-1.5 text-sm tabular">
+                <div className="flex justify-between text-muted">
+                  <dt>Base imponible</dt>
+                  <dd>{formatEuro(calc.base)}</dd>
+                </div>
+                {calc.byRate.map((g) => (
+                  <div key={g.iva} className="flex justify-between text-muted">
+                    <dt>IVA {g.iva}%</dt>
+                    <dd>{formatEuro(g.cuota)}</dd>
+                  </div>
+                ))}
+                <div className="flex justify-between border-t border-border pt-2 text-base font-semibold">
+                  <dt>Total</dt>
+                  <dd>{formatEuro(calc.total)}</dd>
+                </div>
+              </dl>
+            </div>
+          </Card>
+
+          <Card title="Notas" description="Opcional. Aparecen al final de la factura.">
+            <Textarea
+              aria-label="Notas"
+              value={notas}
+              onChange={(e) => setNotas(e.target.value)}
+              placeholder="Ej.: Comida de empresa del 15/10 para 12 personas."
+            />
+          </Card>
+        </form>
+
+        <aside className="min-[1400px]:sticky min-[1400px]:top-7 max-w-2xl">
+          <div className="mb-2 flex items-center justify-between px-1">
+            <span className="text-xs font-medium uppercase tracking-wider text-muted">
+              Vista previa
+            </span>
+            <span className="text-xs text-muted/70">Ctrl + Enter para generar</span>
+          </div>
+          <PdfPreview data={previewData} />
+        </aside>
       </div>
 
-      <div className="flex items-center justify-center pt-5 space-x-3">
-        {show ? (
-          <Toast
-            message="Tienes que rellenar todos los campos"
-            type="warning"
-          />
-        ) : null}
-        {profileErr ? <Toast message={profileErr} type="error" /> : null}
-        {clearMsg ? <Toast message={clearMsg} type="success" /> : null}
-      </div>
-    </form>
+      {toast ? <Toast message={toast.message} type={toast.type} /> : null}
+    </div>
   );
 }

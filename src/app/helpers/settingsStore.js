@@ -99,6 +99,7 @@ export function createProfile(initial = {}) {
     address2: "",
     email: "",
     logoDataUrl: "",
+    footerNote: "",
     ...initial,
   };
   state.profiles.push(profile);
@@ -134,6 +135,27 @@ export function saveSettings(settings) {
     return !!profile;
   }
   return updateProfile(state.activeId, settings);
+}
+
+// --- Copia de seguridad -------------------------------------------------
+
+export function exportSettingsState() {
+  return readRaw();
+}
+
+// Añade los perfiles de una copia que no existan ya (por id).
+// Devuelve el número de perfiles añadidos.
+export function importProfiles(imported) {
+  const state = readRaw();
+  const existing = new Set(state.profiles.map((p) => p.id));
+  const toAdd = (imported?.profiles || []).filter(
+    (p) => p?.id && !existing.has(p.id)
+  );
+  if (toAdd.length === 0) return 0;
+  state.profiles.push(...toAdd);
+  if (!state.activeId) state.activeId = imported.activeId || toAdd[0].id;
+  writeRaw(state);
+  return toAdd.length;
 }
 
 // Limpia todo el almacenamiento de ajustes

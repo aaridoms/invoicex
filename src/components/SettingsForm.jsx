@@ -8,331 +8,322 @@ import {
   saveSettings,
   setActiveProfile,
 } from "@/app/helpers/settingsStore";
-import { useEffect, useState } from "react";
+import { optimizeLogo } from "@/app/helpers/logo";
+import { useEffect, useRef, useState } from "react";
+import { IconBuilding, IconPlus, IconTrash, IconUpload } from "./icons";
+import {
+  Button,
+  Card,
+  Field,
+  Input,
+  PageHeader,
+  Textarea,
+  Toast,
+} from "./ui";
+
+const EMPTY = {
+  brandTitle: "",
+  companyName: "",
+  cif: "",
+  address1: "",
+  address2: "",
+  email: "",
+  logoDataUrl: "",
+  footerNote: "",
+};
+
+// Tamaño máximo del archivo subido. Se guarda ya optimizado (JPG de 800 px,
+// normalmente <100 KB), así que no llena el localStorage (≈5 MB en total).
+const MAX_LOGO_BYTES = 5 * 1024 * 1024;
+
+const pickFields = (profile) =>
+  Object.fromEntries(
+    Object.keys(EMPTY).map((k) => [k, profile?.[k] ?? EMPTY[k]])
+  );
 
 export default function SettingsForm() {
   const [profiles, setProfiles] = useState([]);
   const [activeId, setActiveId] = useState("");
-  const [brandTitle, setBrandTitle] = useState("");
-  const [companyName, setCompanyName] = useState("");
-  const [cif, setCif] = useState("");
-  const [address1, setAddress1] = useState("");
-  const [address2, setAddress2] = useState("");
-  const [email, setEmail] = useState("");
-  const [logoDataUrl, setLogoDataUrl] = useState("");
-  const [saved, setSaved] = useState("");
+  const [form, setForm] = useState(EMPTY);
+  const [savedForm, setSavedForm] = useState(EMPTY);
+  const [toast, setToast] = useState(null);
+  const logoInputRef = useRef(null);
+  const toastTimer = useRef(null);
+
+  const dirty = JSON.stringify(form) !== JSON.stringify(savedForm);
+
+  const notify = (message, type = "success") => {
+    clearTimeout(toastTimer.current);
+    setToast({ message, type });
+    toastTimer.current = setTimeout(() => setToast(null), 3500);
+  };
 
   const loadState = () => {
-    const s = getSettings();
-    const ps = listProfiles();
-    setProfiles(ps);
-    setActiveId(s?.id || (ps[0]?.id ?? ""));
-    if (s) {
-      setBrandTitle(s.brandTitle || "");
-      setCompanyName(s.companyName || "");
-      setCif(s.cif || "");
-      setAddress1(s.address1 || "");
-      setAddress2(s.address2 || "");
-      setEmail(s.email || "");
-      setLogoDataUrl(s.logoDataUrl || "");
-    } else {
-      setBrandTitle("");
-      setCompanyName("");
-      setCif("");
-      setAddress1("");
-      setAddress2("");
-      setEmail("");
-      setLogoDataUrl("");
-    }
+    const active = getSettings();
+    setProfiles(listProfiles());
+    setActiveId(active?.id || "");
+    const fields = pickFields(active);
+    setForm(fields);
+    setSavedForm(fields);
   };
 
   useEffect(() => {
     loadState();
   }, []);
 
+  const update = (field) => (e) =>
+    setForm((f) => ({ ...f, [field]: e.target.value }));
+
+  const confirmDiscard = () =>
+    !dirty || window.confirm("Hay cambios sin guardar. ¿Descartarlos?");
+
   const handleLogoChange = (e) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
+    if (file.size > MAX_LOGO_BYTES) {
+      notify("El logo es demasiado grande (máximo 5 MB).", "error");
+      return;
+    }
     const reader = new FileReader();
-    reader.onload = () => {
-      setLogoDataUrl(String(reader.result || ""));
+    reader.onload = async () => {
+      try {
+        const logoDataUrl = await optimizeLogo(String(reader.result || ""));
+        setForm((f) => ({ ...f, logoDataUrl }));
+      } catch {
+        notify("No se pudo leer la imagen. Prueba con un PNG o JPG.", "error");
+      }
     };
     reader.readAsDataURL(file);
   };
 
   const handleSave = (e) => {
     e.preventDefault();
-    const hadActive = !!activeId;
-    const ok = saveSettings({
-      brandTitle,
-      companyName,
-      cif,
-      address1,
-      address2,
-      email,
-      logoDataUrl,
-    });
-    if (ok) {
-      setSaved("Ajustes guardados");
-      if (hadActive) {
-        // Actualizar el perfil activo en memoria para reflejar inmediatamente en el selector
-        setProfiles((prev) =>
-          prev.map((p) =>
-            p.id === activeId
-              ? {
-                  ...p,
-                  brandTitle,
-                  companyName,
-                  cif,
-                  address1,
-                  address2,
-                  email,
-                  logoDataUrl,
-                }
-              : p
-          )
-        );
-      } else {
-        // No había perfil: se creó uno nuevo en el store. Refrescamos lista e id activo.
-        const s = getSettings();
-        const ps = listProfiles();
-        setProfiles(ps);
-        if (s?.id) setActiveId(s.id);
-      }
-      setTimeout(() => setSaved(""), 2000);
-      // Limpiar solo campos de texto (no perfiles ni logo)
-      setBrandTitle("");
-      setCompanyName("");
-      setCif("");
-      setAddress1("");
-      setAddress2("");
-      setEmail("");
-      // logoDataUrl se mantiene para que la previsualización no desaparezca
+    if (!form.companyName.trim()) {
+      notify("El nombre de la empresa es obligatorio.", "warning");
+      return;
+    }
+    if (saveSettings(form)) {
+      loadState();
+      notify("Cambios guardados");
+    } else {
+      notify("No se pudieron guardar los cambios", "error");
     }
   };
-
-  // Botón de limpiar eliminado para evitar borrar compañías por error
 
   const handleCreateProfile = () => {
-    const created = createProfile({ brandTitle: "", companyName: "" });
-    if (created) {
-      // Actualizar inmediatamente el selector y el activo
-      setProfiles((prev) => [...prev, created]);
-      setActiveId(created.id);
-      // Cargar valores del nuevo perfil activo
-      loadState();
-    }
-  };
-
-  const handleDeleteProfile = () => {
-    if (!activeId) return;
-    deleteProfile(activeId);
+    if (!confirmDiscard()) return;
+    createProfile();
     loadState();
   };
 
-  const handleChangeActive = (e) => {
-    const id = e.target.value;
-    setActiveId(id);
+  const handleSelectProfile = (id) => {
+    if (id === activeId || !confirmDiscard()) return;
     setActiveProfile(id);
     loadState();
   };
 
+  const handleDeleteProfile = () => {
+    if (!activeId) return;
+    const name = savedForm.companyName || savedForm.brandTitle || "esta compañía";
+    if (!window.confirm(`¿Eliminar ${name}? No se puede deshacer.`)) return;
+    deleteProfile(activeId);
+    loadState();
+    notify("Compañía eliminada");
+  };
+
   return (
-    <form onSubmit={handleSave} className="max-w-3xl mx-auto p-4 sm:p-6">
-      <div className="rounded-2xl border border-gray-200 bg-white/80 shadow-sm backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/60">
-        <div className="px-4 py-5 sm:px-6 border-b border-gray-100 dark:border-zinc-800">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-            Configuración de empresa
-          </h2>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Estos datos se usarán en el encabezado del PDF.
-          </p>
-        </div>
-        <div className="p-4 sm:p-6 space-y-6">
-          {/* Selector de compañía */}
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="min-w-[220px]">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Compañía activa
-              </label>
-              <select
-                value={activeId}
-                onChange={handleChangeActive}
-                className="block w-full rounded-lg border border-gray-300 bg-white/90 px-3 py-2 text-sm text-gray-900 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-gray-100"
-              >
-                {profiles.length === 0 ? (
-                  <option value="">Sin perfiles</option>
-                ) : (
-                  profiles.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.companyName || p.brandTitle || p.id}
-                    </option>
-                  ))
-                )}
-              </select>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleCreateProfile}
-                className="inline-flex items-center gap-2 rounded-lg bg-transparent border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm transition hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 dark:text-gray-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
-              >
-                Nueva compañía
-              </button>
-              <button
-                type="button"
-                onClick={handleDeleteProfile}
-                className="inline-flex items-center gap-2 rounded-lg bg-transparent border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 shadow-sm transition hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 dark:text-red-300 dark:border-red-800/60 dark:hover:bg-red-900/20"
-              >
-                Eliminar actual
-              </button>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label
-                htmlFor="brandTitle"
-                className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                Título/Marca (cabecera)
-              </label>
-              <input
-                id="brandTitle"
-                type="text"
-                value={brandTitle}
-                onChange={(e) => setBrandTitle(e.target.value)}
-                className="mt-1 block w-full rounded-lg border border-gray-300 bg-white/90 px-3 py-2 text-gray-900 placeholder-gray-400 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-gray-100"
-              />
-            </div>
-            <div>
-              <label
-                htmlFor="companyName"
-                className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                Nombre de la empresa
-              </label>
-              <input
-                id="companyName"
-                type="text"
-                value={companyName}
-                onChange={(e) => setCompanyName(e.target.value)}
-                required
-                className="mt-1 block w-full rounded-lg border border-gray-300 bg-white/90 px-3 py-2 text-gray-900 placeholder-gray-400 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-gray-100"
-              />
-            </div>
-            <div>
-              <label
-                htmlFor="cif"
-                className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                CIF/NIF
-              </label>
-              <input
-                id="cif"
-                type="text"
-                value={cif}
-                onChange={(e) => setCif(e.target.value)}
-                required
-                className="mt-1 block w-full rounded-lg border border-gray-300 bg-white/90 px-3 py-2 text-gray-900 placeholder-gray-400 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-gray-100"
-              />
-            </div>
-            <div>
-              <label
-                htmlFor="address1"
-                className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                Dirección (línea 1)
-              </label>
-              <input
-                id="address1"
-                type="text"
-                value={address1}
-                onChange={(e) => setAddress1(e.target.value)}
-                className="mt-1 block w-full rounded-lg border border-gray-300 bg-white/90 px-3 py-2 text-gray-900 placeholder-gray-400 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-gray-100"
-              />
-            </div>
-            <div>
-              <label
-                htmlFor="address2"
-                className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                Dirección (línea 2)
-              </label>
-              <input
-                id="address2"
-                type="text"
-                value={address2}
-                onChange={(e) => setAddress2(e.target.value)}
-                className="mt-1 block w-full rounded-lg border border-gray-300 bg-white/90 px-3 py-2 text-gray-900 placeholder-gray-400 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-gray-100"
-              />
-            </div>
-            <div>
-              <label
-                htmlFor="email"
-                className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                Email
-              </label>
-              <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="empresa@dominio.com"
-                className="mt-1 block w-full rounded-lg border border-gray-300 bg-white/90 px-3 py-2 text-gray-900 placeholder-gray-400 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-gray-100"
-              />
-            </div>
-          </div>
+    <div className="mx-auto max-w-6xl px-8 py-7">
+      <PageHeader
+        title="Configuración"
+        description="Datos de la empresa que emite las facturas. Se guardan solo en este navegador."
+      />
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Logo
-            </label>
-            <div className="mt-1 flex items-center gap-4">
-              <div className="h-16 w-16 rounded-lg border border-gray-300 dark:border-zinc-700 overflow-hidden bg-white/70 dark:bg-zinc-900/60 flex items-center justify-center">
-                {logoDataUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={logoDataUrl}
-                    alt="Logo"
-                    className="h-full w-full object-contain"
+      <div className="grid items-start gap-6 grid-cols-[260px_minmax(0,1fr)]">
+        <Card title="Compañías">
+          <div className="-mx-2 -mt-2 space-y-0.5">
+            {profiles.length === 0 ? (
+              <p className="px-2 py-1 text-xs text-muted">
+                Todavía no hay ninguna. Rellena el formulario y guarda para
+                crear la primera.
+              </p>
+            ) : (
+              profiles.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => handleSelectProfile(p.id)}
+                  className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-sm transition-colors ${
+                    p.id === activeId
+                      ? "bg-surface-2 text-fg"
+                      : "text-muted hover:bg-surface-2/60 hover:text-fg"
+                  }`}
+                >
+                  <IconBuilding
+                    className={`h-4 w-4 shrink-0 ${p.id === activeId ? "text-accent" : ""}`}
                   />
-                ) : (
-                  <span className="text-xs text-gray-500 dark:text-gray-400">
-                    Sin logo
+                  <span className="truncate">
+                    {p.companyName || p.brandTitle || "Sin nombre"}
                   </span>
-                )}
-              </div>
-              <div>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleLogoChange}
-                  className="block text-sm text-gray-700 dark:text-gray-300"
+                  {p.id === activeId ? (
+                    <span className="ml-auto text-[10px] uppercase tracking-wider text-accent">
+                      Activa
+                    </span>
+                  ) : null}
+                </button>
+              ))
+            )}
+          </div>
+          <Button
+            size="sm"
+            className="mt-3 w-full justify-center"
+            onClick={handleCreateProfile}
+          >
+            <IconPlus className="h-3.5 w-3.5" />
+            Nueva compañía
+          </Button>
+        </Card>
+
+        <form onSubmit={handleSave} className="space-y-5">
+          <Card
+            title="Datos del emisor"
+            description="Aparecen en la cabecera y el pie de cada factura."
+          >
+            <div className="grid grid-cols-2 gap-3">
+              <Field
+                label="Nombre comercial (opcional)"
+                htmlFor="brandTitle"
+                hint="Título grande de la factura. Si lo dejas vacío se usa el nombre de la empresa."
+              >
+                <Input
+                  id="brandTitle"
+                  value={form.brandTitle}
+                  onChange={update("brandTitle")}
+                  placeholder="Restaurante Ejemplo"
                 />
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  Se recomienda un PNG/JPG cuadrado. Se guardará localmente.
-                </p>
+              </Field>
+              <Field label="Razón social" htmlFor="companyName">
+                <Input
+                  id="companyName"
+                  value={form.companyName}
+                  onChange={update("companyName")}
+                  placeholder="Ejemplo Hostelería S.L."
+                />
+              </Field>
+              <Field label="NIF/CIF" htmlFor="cif">
+                <Input
+                  id="cif"
+                  value={form.cif}
+                  onChange={update("cif")}
+                  placeholder="B12345678"
+                />
+              </Field>
+              <Field label="Email" htmlFor="email">
+                <Input
+                  id="email"
+                  type="email"
+                  value={form.email}
+                  onChange={update("email")}
+                  placeholder="facturas@ejemplo.com"
+                />
+              </Field>
+              <Field label="Dirección" htmlFor="address1">
+                <Input
+                  id="address1"
+                  value={form.address1}
+                  onChange={update("address1")}
+                  placeholder="Calle Mayor 1"
+                />
+              </Field>
+              <Field label="Código postal y ciudad" htmlFor="address2">
+                <Input
+                  id="address2"
+                  value={form.address2}
+                  onChange={update("address2")}
+                  placeholder="41010 Sevilla"
+                />
+              </Field>
+            </div>
+          </Card>
+
+          <div className="grid grid-cols-2 gap-5">
+            <Card title="Logo" description="PNG o JPG, máximo 5 MB.">
+              <div className="flex items-center gap-4">
+                <div className="grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-lg border border-border bg-white">
+                  {form.logoDataUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={form.logoDataUrl}
+                      alt="Logo"
+                      className="max-h-full max-w-full object-contain"
+                    />
+                  ) : (
+                    <span className="text-[11px] text-zinc-400">Sin logo</span>
+                  )}
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => logoInputRef.current?.click()}
+                  >
+                    <IconUpload className="h-3.5 w-3.5" />
+                    {form.logoDataUrl ? "Cambiar" : "Subir logo"}
+                  </Button>
+                  {form.logoDataUrl ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setForm((f) => ({ ...f, logoDataUrl: "" }))}
+                    >
+                      Quitar
+                    </Button>
+                  ) : null}
+                </div>
+                <input
+                  ref={logoInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg"
+                  onChange={handleLogoChange}
+                  className="hidden"
+                />
               </div>
+            </Card>
+
+            <Card
+              title="Información adicional"
+              description="Texto fijo al final de cada factura."
+            >
+              <Textarea
+                aria-label="Información adicional"
+                value={form.footerNote}
+                onChange={update("footerNote")}
+                placeholder="Forma de pago: transferencia a ES00 0000 0000 0000 0000 0000"
+              />
+            </Card>
+          </div>
+
+          <div className="flex items-center justify-between border-t border-border pt-5">
+            {activeId ? (
+              <Button variant="danger" onClick={handleDeleteProfile}>
+                <IconTrash />
+                Eliminar compañía
+              </Button>
+            ) : (
+              <span />
+            )}
+            <div className="flex items-center gap-3">
+              {dirty ? (
+                <span className="text-xs text-muted">Cambios sin guardar</span>
+              ) : null}
+              <Button variant="primary" type="submit" disabled={!dirty}>
+                Guardar cambios
+              </Button>
             </div>
           </div>
-
-          <div className="pt-2 flex justify-end">
-            <button
-              type="submit"
-              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-            >
-              Guardar
-            </button>
-          </div>
-
-          {saved ? (
-            <p className="text-sm text-green-600 dark:text-green-400">
-              {saved}
-            </p>
-          ) : null}
-        </div>
+        </form>
       </div>
-    </form>
+
+      {toast ? <Toast message={toast.message} type={toast.type} /> : null}
+    </div>
   );
 }

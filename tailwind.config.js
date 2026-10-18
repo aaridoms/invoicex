@@ -1,22 +1,28 @@
-import {nextui} from "@nextui-org/react";
-
 /** @type {import('tailwindcss').Config} */
+const token = (name) => `rgb(var(--${name}) / <alpha-value>)`;
+
 module.exports = {
   content: [
-    './src/pages/**/*.{js,ts,jsx,tsx,mdx}',
-    './src/components/**/*.{js,ts,jsx,tsx,mdx}',
-    './src/app/**/*.{js,ts,jsx,tsx,mdx}',
-    "./node_modules/@nextui-org/theme/dist/**/*.{js,ts,jsx,tsx}"
+    "./src/components/**/*.{js,jsx,mdx}",
+    "./src/app/**/*.{js,jsx,mdx}",
   ],
   theme: {
     extend: {
-      backgroundImage: {
-        'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
-        'gradient-conic':
-          'conic-gradient(from 180deg at 50% 50%, var(--tw-gradient-stops))',
+      colors: {
+        bg: token("bg"),
+        surface: token("surface"),
+        "surface-2": token("surface-2"),
+        border: token("border"),
+        fg: token("fg"),
+        muted: token("muted"),
+        accent: token("accent"),
+        "accent-fg": token("accent-fg"),
+        danger: token("danger"),
+      },
+      fontFamily: {
+        sans: ["var(--font-inter)", "system-ui", "sans-serif"],
       },
     },
   },
-  darkMode: "class",
-  plugins: [nextui()],
-}
+  plugins: [],
+};
