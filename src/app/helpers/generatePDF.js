@@ -1,8 +1,6 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { computeInvoice, formatEuro, formatQty } from "./invoiceMath";
-import { saveInvoice } from "./invoicesStore";
-import { getSettings } from "./settingsStore";
 
 // Factura en A4, pensada para imprimirse: fondo blanco, tipografía
 // sobria y un único color de acento.
@@ -282,7 +280,9 @@ function drawFooters(doc, settings) {
   }
 }
 
-export function buildInvoicePdf(invoice, settings = getSettings()) {
+// settings: datos del emisor { brandTitle, companyName, cif, address1,
+// address2, email, logoDataUrl, footerNote }
+export function buildInvoicePdf(invoice, settings) {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   doc.setProperties({
     title: `Factura ${invoice.nFactura || ""}`.trim(),
@@ -318,27 +318,3 @@ export function invoicePreviewData(invoice, settings) {
 
 export const invoiceFilename = (nFactura) =>
   `factura_${String(nFactura).replace(/[\\/:*?"<>|\s]+/g, "-")}.pdf`;
-
-// Genera la factura, la guarda en el historial y la descarga.
-// Si no se puede guardar (p. ej. número repetido) lanza error y no descarga.
-export default async function generateInvoice(invoice, settings = getSettings()) {
-  const { doc, calc } = buildInvoicePdf(invoice, settings);
-  const filename = invoiceFilename(invoice.nFactura);
-
-  await saveInvoice({
-    id: String(invoice.nFactura),
-    filename,
-    meta: {
-      nFactura: String(invoice.nFactura),
-      fecha: formatDate(invoice.fecha),
-      cliente: invoice.cliente?.nombre || "",
-      total: calc.total,
-      // Datos completos para poder duplicar la factura más adelante
-      invoice,
-    },
-    blob: doc.output("blob"),
-  });
-
-  doc.save(filename);
-  return { filename, total: calc.total };
-}

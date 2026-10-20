@@ -1,11 +1,12 @@
 "use client";
 
-import { getSettings } from "@/app/helpers/settingsStore";
+import { getSupabase } from "@/lib/supabase/client";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useState } from "react";
 import { IconBuilding, IconFile, IconHistory, IconSettings } from "./icons";
 import Logo from "./Logo";
+import { useSession } from "./SessionProvider";
 
 const NAV = [
   { href: "/", label: "Nueva factura", Icon: IconFile },
@@ -15,24 +16,19 @@ const NAV = [
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const [company, setCompany] = useState(null);
-
-  useEffect(() => {
-    const update = () => {
-      const s = getSettings();
-      setCompany(s ? s.companyName || s.brandTitle || "Sin nombre" : "");
-    };
-    update();
-    window.addEventListener("invoicex:settings-changed", update);
-    window.addEventListener("storage", update);
-    return () => {
-      window.removeEventListener("invoicex:settings-changed", update);
-      window.removeEventListener("storage", update);
-    };
-  }, []);
+  const router = useRouter();
+  const { user, org } = useSession();
+  const [signingOut, setSigningOut] = useState(false);
 
   const isActive = (href) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
+
+  const handleSignOut = async () => {
+    setSigningOut(true);
+    await getSupabase().auth.signOut();
+    router.replace("/login");
+    router.refresh();
+  };
 
   return (
     <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col border-r border-border bg-surface/60 px-3 py-5">
@@ -57,20 +53,25 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      <Link
-        href="/settings"
-        className="mt-auto flex items-center gap-3 rounded-lg border border-border bg-surface-2/50 px-3 py-2.5 transition-colors hover:border-muted/40"
-      >
-        <IconBuilding className="h-4 w-4 shrink-0 text-muted" />
-        <div className="min-w-0">
-          <p className="text-[11px] uppercase tracking-wider text-muted">
-            Emisor
-          </p>
-          <p className="truncate text-sm">
-            {company === null ? "…" : company || "Sin compañía"}
-          </p>
+      <div className="mt-auto rounded-lg border border-border bg-surface-2/50 p-3">
+        <div className="flex items-center gap-3">
+          <IconBuilding className="h-4 w-4 shrink-0 text-muted" />
+          <div className="min-w-0">
+            <p className="truncate text-sm">{org.name}</p>
+            <p className="truncate text-xs text-muted" title={user.email}>
+              {user.email}
+            </p>
+          </div>
         </div>
-      </Link>
+        <button
+          type="button"
+          onClick={handleSignOut}
+          disabled={signingOut}
+          className="mt-2.5 w-full rounded-md px-2 py-1 text-left text-xs text-muted transition-colors hover:bg-surface-2 hover:text-fg"
+        >
+          {signingOut ? "Cerrando sesión…" : "Cerrar sesión"}
+        </button>
+      </div>
     </aside>
   );
 }

@@ -1,39 +1,20 @@
 "use client";
 
+import { formatDate } from "@/app/helpers/generatePDF";
 import { formatEuro } from "@/app/helpers/invoiceMath";
 import {
-  DUPLICATE_KEY,
   deleteInvoice,
-  downloadInvoice,
-  exportAllInvoices,
-  getInvoice,
-  importInvoices,
+  downloadInvoicePdf,
   listInvoices,
-} from "@/app/helpers/invoicesStore";
-import {
-  exportSettingsState,
-  importProfiles,
-} from "@/app/helpers/settingsStore";
+} from "@/lib/data/invoices";
+import { listIssuers } from "@/lib/data/issuers";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  IconDownload,
-  IconFile,
-  IconSearch,
-  IconTrash,
-  IconUpload,
-} from "./icons";
+import { IconDownload, IconFile, IconSearch, IconTrash } from "./icons";
+import { canWrite, useSession } from "./SessionProvider";
 import { Button, Input, PageHeader, Toast } from "./ui";
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
-
-// "dd/mm/aaaa" (o la fecha de creación) -> { year, month }
-const invoiceMonth = (it) => {
-  const [d, m, y] = String(it.meta?.fecha || "").split("/");
-  if (y && m && d) return { year: Number(y), month: Number(m) };
-  const date = new Date(it.createdAt);
-  return { year: date.getFullYear(), month: date.getMonth() + 1 };
-};
 
 function saveBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
@@ -60,11 +41,12 @@ function Stat({ label, value, hint }) {
 
 export default function InvoicesList() {
   const router = useRouter();
+  const { org, role } = useSession();
   const [items, setItems] = useState([]);
+  const [issuers, setIssuers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [toast, setToast] = useState(null);
-  const fileInputRef = useRef(null);
   const toastTimer = useRef(null);
 
   const notify = useCallback((message, type = "success") => {
@@ -76,17 +58,29 @@ export default function InvoicesList() {
   const refresh = useCallback(async () => {
     try {
       setLoading(true);
-      setItems(await listInvoices());
+      const [invoices, issuerList] = await Promise.all([
+        listInvoices(org.id),
+        listIssuers(org.id),
+      ]);
+      setItems(invoices);
+      setIssuers(issuerList);
     } catch (e) {
+      console.error("Historial:", e);
       notify("No se pudo cargar el historial de facturas", "error");
     } finally {
       setLoading(false);
     }
-  }, [notify]);
+  }, [org.id, notify]);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  const issuerName = useMemo(() => {
+    const names = new Map(issuers.map((i) => [i.id, i.companyName || i.brandTitle]));
+    return (id) => names.get(id) || "—";
+  }, [issuers]);
+  const showIssuer = issuers.length > 1;
 
   const filteredItems = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -97,114 +91,53 @@ export default function InvoicesList() {
         .includes(q);
     return items.filter(
       (it) =>
-        includes(it.meta?.nFactura) ||
-        includes(it.meta?.cliente) ||
-        includes(it.meta?.fecha) ||
-        includes(it.filename)
+        includes(it.number) ||
+        includes(it.client?.nombre) ||
+        includes(formatDate(it.issue_date)) ||
+        includes(issuerName(it.issuer_id))
     );
-  }, [items, query]);
+  }, [items, query, issuerName]);
 
   const stats = useMemo(() => {
     const now = new Date();
-    const sum = (list) => list.reduce((s, it) => s + (it.meta?.total || 0), 0);
-    const thisMonth = items.filter((it) => {
-      const { year, month } = invoiceMonth(it);
-      return year === now.getFullYear() && month === now.getMonth() + 1;
-    });
-    const thisYear = items.filter(
-      (it) => invoiceMonth(it).year === now.getFullYear()
-    );
+    const year = String(now.getFullYear());
+    const month = `${year}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const sum = (list) => list.reduce((s, it) => s + Number(it.total || 0), 0);
+    const thisMonth = items.filter((it) => it.issue_date.startsWith(month));
+    const thisYear = items.filter((it) => it.issue_date.startsWith(year));
     return {
       monthTotal: sum(thisMonth),
       monthCount: thisMonth.length,
       yearTotal: sum(thisYear),
       yearCount: thisYear.length,
-      year: now.getFullYear(),
+      year,
       monthName: now.toLocaleDateString("es-ES", { month: "long" }),
     };
   }, [items]);
 
   const handleDownload = async (id) => {
     try {
-      const rec = await downloadInvoice(id);
-      if (rec?.blob) saveBlob(rec.blob, rec.filename || `factura_${id}.pdf`);
+      const { blob, filename } = await downloadInvoicePdf(id, issuers);
+      saveBlob(blob, filename);
     } catch (e) {
+      console.error("Descarga:", e);
       notify("No se pudo descargar la factura", "error");
     }
   };
 
-  const handleDuplicate = async (id) => {
-    try {
-      const rec = await getInvoice(id);
-      if (!rec?.meta?.invoice) return;
-      sessionStorage.setItem(
-        DUPLICATE_KEY,
-        JSON.stringify({ from: id, invoice: rec.meta.invoice })
-      );
-      router.push("/");
-    } catch (e) {
-      notify("No se pudo duplicar la factura", "error");
-    }
-  };
-
-  const handleDelete = async (id) => {
-    if (!window.confirm(`¿Eliminar la factura ${id}? No se puede deshacer.`)) {
+  const handleDelete = async (it) => {
+    if (
+      !window.confirm(`¿Eliminar la factura ${it.number}? No se puede deshacer.`)
+    ) {
       return;
     }
     try {
-      await deleteInvoice(id);
+      await deleteInvoice(it.id);
       await refresh();
-      notify(`Factura ${id} eliminada`);
+      notify(`Factura ${it.number} eliminada`);
     } catch (e) {
+      console.error("Eliminar:", e);
       notify("No se pudo eliminar la factura", "error");
-    }
-  };
-
-  const handleExport = async () => {
-    try {
-      const backup = {
-        app: "invoicex",
-        version: 1,
-        exportedAt: new Date().toISOString(),
-        settings: exportSettingsState(),
-        invoices: await exportAllInvoices(),
-      };
-      saveBlob(
-        new Blob([JSON.stringify(backup)], { type: "application/json" }),
-        `invoicex-copia-${new Date().toISOString().slice(0, 10)}.json`
-      );
-      notify(
-        `Copia exportada con ${plural(backup.invoices.length, "factura", "facturas")}.`
-      );
-    } catch (e) {
-      notify("No se pudo exportar la copia de seguridad", "error");
-    }
-  };
-
-  const handleImport = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    try {
-      const backup = JSON.parse(await file.text());
-      if (backup?.app !== "invoicex" || !Array.isArray(backup.invoices)) {
-        throw new Error("formato");
-      }
-      const profilesAdded = importProfiles(backup.settings);
-      const { added, skipped } = await importInvoices(backup.invoices);
-      await refresh();
-      notify(
-        `Importadas: ${plural(added, "factura", "facturas")}` +
-          (skipped ? ` (${skipped} ya existían y se han omitido)` : "") +
-          (profilesAdded
-            ? ` y ${plural(profilesAdded, "compañía", "compañías")}.`
-            : ".")
-      );
-    } catch (err) {
-      notify(
-        "El archivo no es una copia válida de InvoiceX o no se pudo importar",
-        "error"
-      );
     }
   };
 
@@ -212,26 +145,7 @@ export default function InvoicesList() {
     <div className="mx-auto max-w-6xl px-8 py-7">
       <PageHeader
         title="Historial"
-        description="Facturas guardadas en este navegador. Exporta una copia de vez en cuando para no perderlas."
-        actions={
-          <>
-            <Button onClick={() => fileInputRef.current?.click()}>
-              <IconUpload />
-              Importar copia
-            </Button>
-            <Button onClick={handleExport}>
-              <IconDownload />
-              Exportar copia
-            </Button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="application/json,.json"
-              onChange={handleImport}
-              className="hidden"
-            />
-          </>
-        }
+        description={`Facturas emitidas por ${org.name}.`}
       />
 
       <div className="mb-6 grid grid-cols-3 gap-4">
@@ -248,7 +162,7 @@ export default function InvoicesList() {
         <Stat
           label="Total en el historial"
           value={items.length}
-          hint="facturas guardadas"
+          hint="facturas emitidas"
         />
       </div>
 
@@ -288,6 +202,9 @@ export default function InvoicesList() {
                 <th className="px-5 py-2.5 font-medium">Número</th>
                 <th className="px-5 py-2.5 font-medium">Fecha</th>
                 <th className="px-5 py-2.5 font-medium">Cliente</th>
+                {showIssuer ? (
+                  <th className="px-5 py-2.5 font-medium">Empresa</th>
+                ) : null}
                 <th className="px-5 py-2.5 text-right font-medium">Total</th>
                 <th className="px-5 py-2.5" />
               </tr>
@@ -298,25 +215,28 @@ export default function InvoicesList() {
                   key={it.id}
                   className="group border-b border-border/60 last:border-0 hover:bg-surface-2/50"
                 >
-                  <td className="px-5 py-3 font-medium tabular">
-                    {it.meta?.nFactura || it.id}
-                  </td>
+                  <td className="px-5 py-3 font-medium tabular">{it.number}</td>
                   <td className="px-5 py-3 text-muted tabular">
-                    {it.meta?.fecha || "—"}
+                    {formatDate(it.issue_date)}
                   </td>
-                  <td className="max-w-[280px] truncate px-5 py-3">
-                    {it.meta?.cliente || "—"}
+                  <td className="max-w-[260px] truncate px-5 py-3">
+                    {it.client?.nombre || "—"}
                   </td>
+                  {showIssuer ? (
+                    <td className="max-w-[200px] truncate px-5 py-3 text-muted">
+                      {issuerName(it.issuer_id)}
+                    </td>
+                  ) : null}
                   <td className="px-5 py-3 text-right font-medium tabular">
-                    {it.meta?.total != null ? formatEuro(it.meta.total) : "—"}
+                    {formatEuro(it.total)}
                   </td>
                   <td className="px-5 py-2">
                     <div className="flex justify-end gap-1 opacity-60 transition-opacity group-hover:opacity-100">
-                      {it.meta?.invoice ? (
+                      {canWrite(role) ? (
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleDuplicate(it.id)}
+                          onClick={() => router.push(`/?duplicar=${it.id}`)}
                           title="Crear una factura nueva con estos datos"
                         >
                           Duplicar
@@ -330,15 +250,17 @@ export default function InvoicesList() {
                         <IconDownload className="h-3.5 w-3.5" />
                         PDF
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleDelete(it.id)}
-                        aria-label={`Eliminar factura ${it.id}`}
-                        className="hover:!text-danger"
-                      >
-                        <IconTrash />
-                      </Button>
+                      {role === "owner" ? (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDelete(it)}
+                          aria-label={`Eliminar factura ${it.number}`}
+                          className="hover:!text-danger"
+                        >
+                          <IconTrash />
+                        </Button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>

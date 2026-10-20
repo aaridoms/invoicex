@@ -1,23 +1,26 @@
 "use client";
 
-import generateInvoice, { invoicePreviewData } from "@/app/helpers/generatePDF";
+import { invoicePreviewData } from "@/app/helpers/generatePDF";
 import {
   DEFAULT_VAT,
   VAT_RATES,
   computeInvoice,
   formatEuro,
 } from "@/app/helpers/invoiceMath";
-import {
-  DUPLICATE_KEY,
-  invoiceExists,
-  suggestNextInvoiceNumber,
-} from "@/app/helpers/invoicesStore";
 import { withOptimizedLogo } from "@/app/helpers/logo";
-import { getSettings } from "@/app/helpers/settingsStore";
+import {
+  getInvoice,
+  invoiceNumberExists,
+  issueInvoice,
+  suggestNextInvoiceNumber,
+  toInvoice,
+} from "@/lib/data/invoices";
+import { lastIssuerId, listIssuers, rememberIssuer } from "@/lib/data/issuers";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { IconPlus, IconTrash } from "./icons";
 import PdfPreview from "./PdfPreview";
+import { canWrite, useSession } from "./SessionProvider";
 import {
   Button,
   Card,
@@ -49,8 +52,11 @@ const newLine = (id = `l${Date.now()}_${lineSeq++}`) => ({
 const EMPTY_CLIENT = { nombre: "", cif: "", direccion: "", ciudad: "" };
 
 export default function Invoform() {
-  // undefined = aún no leído; null = no hay compañía configurada
-  const [settings, setSettings] = useState(undefined);
+  const { org, role } = useSession();
+  const writable = canWrite(role);
+  // undefined = cargando; [] = no hay emisores
+  const [issuers, setIssuers] = useState(undefined);
+  const [issuerId, setIssuerId] = useState("");
   const [nFactura, setNFactura] = useState("");
   const [fecha, setFecha] = useState("");
   const [cliente, setCliente] = useState(EMPTY_CLIENT);
@@ -68,45 +74,71 @@ export default function Invoform() {
     toastTimer.current = setTimeout(() => setToast(null), ms);
   };
 
-  const prefillInvoiceData = useCallback(async () => {
+  const issuer = issuers?.find((i) => i.id === issuerId) || null;
+
+  // Número siguiente del emisor elegido y fecha de hoy
+  const prefillInvoiceData = useCallback(async (forIssuerId) => {
     setFecha(todayISO());
+    if (!forIssuerId) return;
     try {
-      setNFactura(await suggestNextInvoiceNumber());
-    } catch {
-      // Sin IndexedDB no hay sugerencia; el usuario escribe el número
+      setNFactura(await suggestNextInvoiceNumber(forIssuerId));
+    } catch (err) {
+      console.error("Numeración:", err);
     }
   }, []);
 
+  // Emisores de la organización; se elige el último usado en este navegador
   useEffect(() => {
-    prefillInvoiceData();
+    let cancelled = false;
+    listIssuers(org.id)
+      .then((list) => {
+        if (cancelled) return;
+        setIssuers(list);
+        const remembered = lastIssuerId();
+        setIssuerId(
+          list.some((i) => i.id === remembered) ? remembered : list[0]?.id || ""
+        );
+      })
+      .catch((err) => {
+        console.error("Emisores:", err);
+        if (!cancelled) setIssuers([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [org.id]);
 
-    // Factura duplicada desde el historial: se copian cliente, conceptos
-    // y notas; número y fecha son siempre nuevos.
-    try {
-      const raw = sessionStorage.getItem(DUPLICATE_KEY);
-      if (raw) {
-        sessionStorage.removeItem(DUPLICATE_KEY);
-        const { from, invoice: src } = JSON.parse(raw);
+  useEffect(() => {
+    if (issuerId) prefillInvoiceData(issuerId);
+  }, [issuerId, prefillInvoiceData]);
+
+  // Factura duplicada desde el historial (?duplicar=<id>): se copian
+  // emisor, cliente, conceptos y notas; número y fecha son siempre nuevos.
+  useEffect(() => {
+    const dupId = new URLSearchParams(window.location.search).get("duplicar");
+    if (!dupId) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    getInvoice(dupId)
+      .then((row) => {
+        const src = toInvoice(row);
+        setIssuerId(row.issuer_id);
         setCliente({ ...EMPTY_CLIENT, ...src.cliente });
         setItems(
-          src.items?.length
+          src.items.length
             ? src.items.map((it) => ({ ...newLine(), ...it, id: newLine().id }))
             : [newLine()]
         );
         setPricesIncludeVat(!!src.pricesIncludeVat);
-        setNotas(src.notas || "");
-        notify(`Datos copiados de la factura ${from}`);
-      }
-    } catch {
-      // Si la copia está dañada, se empieza con el formulario vacío
-    }
+        setNotas(src.notas);
+        notify(`Datos copiados de la factura ${row.number}`);
+      })
+      .catch(() => notify("No se pudo cargar la factura a duplicar", "error"));
+  }, []);
 
-    const loadSettings = () => setSettings(getSettings());
-    loadSettings();
-    window.addEventListener("invoicex:settings-changed", loadSettings);
-    return () =>
-      window.removeEventListener("invoicex:settings-changed", loadSettings);
-  }, [prefillInvoiceData]);
+  const handleIssuerChange = (id) => {
+    setIssuerId(id);
+    rememberIssuer(id);
+  };
 
   const invoice = useMemo(
     () => ({
@@ -129,15 +161,15 @@ export default function Invoform() {
   // logo; ver helpers/logo.js). undefined mientras se prepara.
   const [pdfSettings, setPdfSettings] = useState(undefined);
   useEffect(() => {
-    if (settings === undefined) return;
+    if (issuers === undefined) return;
     let cancelled = false;
-    withOptimizedLogo(settings).then((s) => {
+    withOptimizedLogo(issuer).then((s) => {
       if (!cancelled) setPdfSettings(s);
     });
     return () => {
       cancelled = true;
     };
-  }, [settings]);
+  }, [issuers, issuer]);
 
   // Vista previa en vivo (con un pequeño retardo para no regenerar en cada tecla)
   useEffect(() => {
@@ -187,11 +219,12 @@ export default function Invoform() {
     setItems([newLine()]);
     setNotas("");
     setPricesIncludeVat(false);
-    prefillInvoiceData();
+    prefillInvoiceData(issuerId);
   };
 
   const validate = () => {
-    if (!settings) return "Configura primero la compañía emisora.";
+    if (!writable) return "Tu usuario solo puede consultar facturas.";
+    if (!issuer) return "Configura primero la empresa emisora.";
     const missing = [];
     if (!invoice.nFactura) missing.push("número");
     if (!fecha) missing.push("fecha");
@@ -210,18 +243,20 @@ export default function Invoform() {
     }
     setSubmitting(true);
     try {
-      if (await invoiceExists(invoice.nFactura)) {
+      if (await invoiceNumberExists(issuer.id, invoice.nFactura)) {
         notify(
-          `Ya existe la factura ${invoice.nFactura}. Usa otro número para no sobrescribirla.`,
+          `Ya existe la factura ${invoice.nFactura}. Usa otro número para no duplicarla.`,
           "error",
           6000
         );
         return;
       }
-      const { filename } = await generateInvoice(
+      const { doc, filename } = await issueInvoice({
+        orgId: org.id,
+        issuer: await withOptimizedLogo(issuer),
         invoice,
-        await withOptimizedLogo(settings)
-      );
+      });
+      doc.save(filename);
       notify(`Factura guardada y descargada: ${filename}`);
       resetForm();
     } catch (err) {
@@ -251,22 +286,38 @@ export default function Invoform() {
       <PageHeader
         title="Nueva factura"
         description={
-          settings === undefined ? (
+          issuers === undefined ? (
             " " // cargando ajustes: reservar la línea sin mostrar avisos
-          ) : settings ? (
+          ) : issuers.length === 0 ? (
             <>
-              Emitida por{" "}
-              <span className="text-fg">
-                {settings.companyName || settings.brandTitle}
-              </span>
-            </>
-          ) : (
-            <>
-              No hay compañía emisora.{" "}
+              No hay empresa emisora.{" "}
               <Link href="/settings" className="text-accent hover:underline">
                 Configúrala aquí
               </Link>
             </>
+          ) : issuers.length === 1 ? (
+            <>
+              Emitida por{" "}
+              <span className="text-fg">
+                {issuer?.companyName || issuer?.brandTitle}
+              </span>
+            </>
+          ) : (
+            <span className="inline-flex items-center gap-2">
+              Emitida por
+              <Select
+                aria-label="Empresa emisora"
+                value={issuerId}
+                onChange={(e) => handleIssuerChange(e.target.value)}
+                className="!h-7 !w-auto !py-0 text-xs"
+              >
+                {issuers.map((i) => (
+                  <option key={i.id} value={i.id}>
+                    {i.companyName || i.brandTitle}
+                  </option>
+                ))}
+              </Select>
+            </span>
           )
         }
         actions={
@@ -278,7 +329,7 @@ export default function Invoform() {
               variant="primary"
               type="submit"
               form="invoice-form"
-              disabled={submitting}
+              disabled={submitting || !writable}
             >
               {submitting ? "Generando…" : "Generar PDF"}
             </Button>
