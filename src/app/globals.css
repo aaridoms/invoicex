@@ -13,6 +13,8 @@
   --accent: 52 211 153;
   --accent-fg: 6 32 22;
   --danger: 248 113 113;
+  /* Barras de gráficos: validado (dataviz) para fondo oscuro, L 0.48–0.67 */
+  --chart: 15 169 116;
   color-scheme: dark;
 }
 

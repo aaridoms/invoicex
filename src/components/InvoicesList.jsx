@@ -1,18 +1,16 @@
 "use client";
 
-import { formatDate } from "@/app/helpers/generatePDF";
-import { formatEuro } from "@/app/helpers/invoiceMath";
+import { formatDate, formatEuro } from "@/app/helpers/invoiceMath";
 import {
   deleteInvoice,
   downloadInvoicePdf,
   listInvoices,
 } from "@/lib/data/invoices";
-import { listIssuers } from "@/lib/data/issuers";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { IconDownload, IconFile, IconSearch, IconTrash } from "./icons";
+import { IconDownload, IconFile, IconPlus, IconSearch, IconTrash } from "./icons";
 import { canWrite, useSession } from "./SessionProvider";
-import { Button, Input, PageHeader, Toast } from "./ui";
+import { Button, ButtonLink, Input, PageHeader, Toast } from "./ui";
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
@@ -41,9 +39,9 @@ function Stat({ label, value, hint }) {
 
 export default function InvoicesList() {
   const router = useRouter();
-  const { org, role } = useSession();
+  // Los emisores llegan ya cargados desde el layout (sin consulta extra)
+  const { org, role, issuers } = useSession();
   const [items, setItems] = useState([]);
-  const [issuers, setIssuers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [toast, setToast] = useState(null);
@@ -58,12 +56,7 @@ export default function InvoicesList() {
   const refresh = useCallback(async () => {
     try {
       setLoading(true);
-      const [invoices, issuerList] = await Promise.all([
-        listInvoices(org.id),
-        listIssuers(org.id),
-      ]);
-      setItems(invoices);
-      setIssuers(issuerList);
+      setItems(await listInvoices(org.id));
     } catch (e) {
       console.error("Historial:", e);
       notify("No se pudo cargar el historial de facturas", "error");
@@ -144,8 +137,16 @@ export default function InvoicesList() {
   return (
     <div className="mx-auto max-w-6xl px-8 py-7">
       <PageHeader
-        title="Historial"
+        title="Facturas"
         description={`Facturas emitidas por ${org.name}.`}
+        actions={
+          canWrite(role) ? (
+            <ButtonLink href="/invoices/new" variant="primary">
+              <IconPlus className="h-4 w-4" />
+              Nueva factura
+            </ButtonLink>
+          ) : null
+        }
       />
 
       <div className="mb-6 grid grid-cols-3 gap-4">
@@ -236,7 +237,9 @@ export default function InvoicesList() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => router.push(`/?duplicar=${it.id}`)}
+                          onClick={() =>
+                            router.push(`/invoices/new?duplicar=${it.id}`)
+                          }
                           title="Crear una factura nueva con estos datos"
                         >
                           Duplicar

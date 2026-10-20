@@ -36,10 +36,12 @@ export async function updateSession(request) {
     }
   );
 
-  // getUser() valida el token contra Supabase (no fiarse solo de la cookie)
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // getClaims() refresca la sesión si ha caducado y verifica la firma del
+  // token en local con las claves públicas del proyecto (cacheadas): no hace
+  // un viaje a Supabase en cada navegación como getUser(). Si el proyecto
+  // usara claves simétricas antiguas, recurre a getUser() automáticamente.
+  const { data } = await supabase.auth.getClaims();
+  const user = data?.claims?.sub ? data.claims : null;
 
   const { pathname } = request.nextUrl;
   if (!user && !isPublic(pathname)) {

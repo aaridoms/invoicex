@@ -67,6 +67,37 @@ export const IconSearch = (p) => (
   </Svg>
 );
 
+export const IconHome = (p) => (
+  <Svg {...p}>
+    <path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z" />
+  </Svg>
+);
+
+export const IconReceipt = (p) => (
+  <Svg {...p}>
+    <path d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2zM9 8h6M9 12h6M9 16h3" />
+  </Svg>
+);
+
+export const IconUsers = (p) => (
+  <Svg {...p}>
+    <circle cx="9" cy="8" r="3.5" />
+    <path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5" />
+  </Svg>
+);
+
+export const IconShare = (p) => (
+  <Svg {...p}>
+    <path d="M12 3v12M7 8l5-5 5 5M5 14v6h14v-6" />
+  </Svg>
+);
+
+export const IconArrowRight = (p) => (
+  <Svg {...p}>
+    <path d="M5 12h14M13 6l6 6-6 6" />
+  </Svg>
+);
+
 export const IconBuilding = (p) => (
   <Svg {...p}>
     <path d="M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16M16 9h2a2 2 0 0 1 2 2v10M3 21h18M8 7h4M8 11h4M8 15h4" />

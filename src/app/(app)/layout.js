@@ -1,6 +1,7 @@
 import SessionProvider from "@/components/SessionProvider";
 import SetupNotice from "@/components/SetupNotice";
 import Sidebar from "@/components/Sidebar";
+import { issuerFromRow } from "@/lib/data/issuers";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
@@ -8,30 +9,37 @@ import { redirect } from "next/navigation";
 // Depende de la sesión de cada petición: nunca se genera como estática
 export const dynamic = "force-dynamic";
 
-// Pantallas de la aplicación: requieren sesión y pertenecer a un negocio
+// Pantallas de la aplicación: requieren sesión y pertenecer a un negocio.
+// El layout se renderiza una vez por carga completa (al navegar entre
+// apartados Next lo conserva), así que aquí se cargan los datos que usan
+// todas las pantallas: usuario, organización, rol y empresas emisoras.
 export default async function AppLayout({ children }) {
   if (!isSupabaseConfigured()) return <SetupNotice />;
 
   const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  // Verificación local del token (ver lib/supabase/middleware.js)
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const claims = claimsData?.claims;
+  if (!claims?.sub) redirect("/login");
 
-  // De momento cada usuario trabaja con su primera organización
+  // Una sola consulta: membresía + organización + sus emisores.
+  // De momento cada usuario trabaja con su primera organización.
   const { data: membership } = await supabase
     .from("memberships")
-    .select("role, organizations (id, name)")
-    .eq("user_id", user.id)
+    .select("role, organizations (id, name, issuers (*))")
+    .eq("user_id", claims.sub)
     .order("created_at")
+    .order("created_at", { referencedTable: "organizations.issuers" })
     .limit(1)
     .maybeSingle();
   if (!membership?.organizations) redirect("/onboarding");
 
+  const { issuers = [], ...org } = membership.organizations;
   const session = {
-    user: { id: user.id, email: user.email },
-    org: membership.organizations,
+    user: { id: claims.sub, email: claims.email },
+    org,
     role: membership.role,
+    issuers: issuers.map(issuerFromRow),
   };
 
   return (

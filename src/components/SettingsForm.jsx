@@ -7,7 +7,8 @@ import {
   listIssuers,
   updateIssuer,
 } from "@/lib/data/issuers";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useRef, useState } from "react";
 import { IconBuilding, IconPlus, IconTrash, IconUpload } from "./icons";
 import { canWrite, useSession } from "./SessionProvider";
 import {
@@ -49,12 +50,15 @@ const pickFields = (issuer) =>
   );
 
 export default function SettingsForm() {
-  const { org, role } = useSession();
+  const router = useRouter();
+  const { org, role, issuers: sessionIssuers } = useSession();
   const writable = canWrite(role);
-  const [issuers, setIssuers] = useState([]);
-  const [selectedId, setSelectedId] = useState("");
-  const [form, setForm] = useState(EMPTY);
-  const [savedForm, setSavedForm] = useState(EMPTY);
+  // Arranca con los emisores que ya trae el layout (sin consulta inicial)
+  const firstId = sessionIssuers[0]?.id || NEW_ID;
+  const [issuers, setIssuers] = useState(sessionIssuers);
+  const [selectedId, setSelectedId] = useState(firstId);
+  const [form, setForm] = useState(() => pickFields(sessionIssuers[0]));
+  const [savedForm, setSavedForm] = useState(() => pickFields(sessionIssuers[0]));
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState(null);
   const logoInputRef = useRef(null);
@@ -76,6 +80,9 @@ export default function SettingsForm() {
     setSavedForm(fields);
   };
 
+  // Recarga tras un cambio: la lista local para esta pantalla y
+  // router.refresh() para que el layout (y con él el editor y el listado)
+  // reciba los emisores actualizados
   const load = useCallback(
     async (preferId) => {
       try {
@@ -85,17 +92,14 @@ export default function SettingsForm() {
           ? preferId
           : list[0]?.id || NEW_ID;
         select(id, list);
+        router.refresh();
       } catch (e) {
         console.error("Emisores:", e);
         notify("No se pudieron cargar las empresas", "error");
       }
     },
-    [org.id, notify]
+    [org.id, notify, router]
   );
-
-  useEffect(() => {
-    load();
-  }, [load]);
 
   const update = (field) => (e) =>
     setForm((f) => ({ ...f, [field]: e.target.value }));

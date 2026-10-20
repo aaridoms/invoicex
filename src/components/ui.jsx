@@ -1,5 +1,7 @@
 // Componentes de interfaz compartidos (tema oscuro)
 
+import Link from "next/link";
+
 const cx = (...classes) => classes.filter(Boolean).join(" ");
 
 const BUTTON_VARIANTS = {
@@ -18,6 +20,14 @@ const BUTTON_SIZES = {
   icon: "h-8 w-8 justify-center",
 };
 
+const buttonClasses = (variant, size, className) =>
+  cx(
+    "inline-flex items-center rounded-lg transition-colors disabled:cursor-not-allowed",
+    BUTTON_VARIANTS[variant],
+    BUTTON_SIZES[size],
+    className
+  );
+
 export function Button({
   variant = "secondary",
   size = "md",
@@ -28,15 +38,15 @@ export function Button({
   return (
     <button
       type={type}
-      className={cx(
-        "inline-flex items-center rounded-lg transition-colors disabled:cursor-not-allowed",
-        BUTTON_VARIANTS[variant],
-        BUTTON_SIZES[size],
-        className
-      )}
+      className={buttonClasses(variant, size, className)}
       {...props}
     />
   );
+}
+
+// Enlace con aspecto de botón (para navegar; Button es para acciones)
+export function ButtonLink({ variant = "secondary", size = "md", className, ...props }) {
+  return <Link className={buttonClasses(variant, size, className)} {...props} />;
 }
 
 const CONTROL =

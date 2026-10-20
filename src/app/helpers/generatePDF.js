@@ -1,6 +1,6 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import { computeInvoice, formatEuro, formatQty } from "./invoiceMath";
+import { computeInvoice, formatDate, formatEuro, formatQty } from "./invoiceMath";
 
 // Factura en A4, pensada para imprimirse: fondo blanco, tipografía
 // sobria y un único color de acento.
@@ -21,12 +21,6 @@ const SOFT = [120, 126, 138];
 const LINE = [226, 229, 234];
 const FILL = [245, 246, 248];
 const ACCENT = [16, 163, 127];
-
-// "aaaa-mm-dd" -> "dd/mm/aaaa" sin pasar por Date (evita desfases horarios)
-export const formatDate = (iso) => {
-  const [y, m, d] = String(iso || "").split("-");
-  return y && m && d ? `${d}/${m}/${y}` : "";
-};
 
 function drawLogo(doc, dataUrl, x, y) {
   try {
@@ -316,5 +310,3 @@ export function invoicePreviewData(invoice, settings) {
   return doc.output("arraybuffer");
 }
 
-export const invoiceFilename = (nFactura) =>
-  `factura_${String(nFactura).replace(/[\\/:*?"<>|\s]+/g, "-")}.pdf`;

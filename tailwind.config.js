@@ -18,6 +18,7 @@ module.exports = {
         accent: token("accent"),
         "accent-fg": token("accent-fg"),
         danger: token("danger"),
+        chart: token("chart"),
       },
       fontFamily: {
         sans: ["var(--font-inter)", "system-ui", "sans-serif"],

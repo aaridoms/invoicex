@@ -3,7 +3,7 @@ import { getSupabase } from "@/lib/supabase/client";
 // Emisores (empresas que firman las facturas). La interfaz usa los mismos
 // nombres de campo que el PDF; aquí se traducen a las columnas de la BD.
 
-const fromRow = (r) => ({
+export const issuerFromRow = (r) => ({
   id: r.id,
   brandTitle: r.brand_title,
   companyName: r.company_name,
@@ -33,7 +33,7 @@ export async function listIssuers(orgId) {
     .eq("org_id", orgId)
     .order("created_at");
   if (error) throw error;
-  return data.map(fromRow);
+  return data.map(issuerFromRow);
 }
 
 export async function createIssuer(orgId, fields) {
@@ -43,7 +43,7 @@ export async function createIssuer(orgId, fields) {
     .select()
     .single();
   if (error) throw error;
-  return fromRow(data);
+  return issuerFromRow(data);
 }
 
 export async function updateIssuer(id, fields) {
@@ -54,7 +54,7 @@ export async function updateIssuer(id, fields) {
     .select()
     .single();
   if (error) throw error;
-  return fromRow(data);
+  return issuerFromRow(data);
 }
 
 export async function deleteIssuer(id) {

@@ -15,7 +15,7 @@ import {
   suggestNextInvoiceNumber,
   toInvoice,
 } from "@/lib/data/invoices";
-import { lastIssuerId, listIssuers, rememberIssuer } from "@/lib/data/issuers";
+import { lastIssuerId, rememberIssuer } from "@/lib/data/issuers";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { IconPlus, IconTrash } from "./icons";
@@ -52,10 +52,9 @@ const newLine = (id = `l${Date.now()}_${lineSeq++}`) => ({
 const EMPTY_CLIENT = { nombre: "", cif: "", direccion: "", ciudad: "" };
 
 export default function Invoform() {
-  const { org, role } = useSession();
+  // Los emisores llegan ya cargados desde el layout (sin consulta extra)
+  const { org, role, issuers } = useSession();
   const writable = canWrite(role);
-  // undefined = cargando; [] = no hay emisores
-  const [issuers, setIssuers] = useState(undefined);
   const [issuerId, setIssuerId] = useState("");
   const [nFactura, setNFactura] = useState("");
   const [fecha, setFecha] = useState("");
@@ -87,26 +86,17 @@ export default function Invoform() {
     }
   }, []);
 
-  // Emisores de la organización; se elige el último usado en este navegador
+  // Se elige el último emisor usado en este navegador (localStorage solo
+  // existe en el cliente, por eso va en un efecto)
   useEffect(() => {
-    let cancelled = false;
-    listIssuers(org.id)
-      .then((list) => {
-        if (cancelled) return;
-        setIssuers(list);
-        const remembered = lastIssuerId();
-        setIssuerId(
-          list.some((i) => i.id === remembered) ? remembered : list[0]?.id || ""
-        );
-      })
-      .catch((err) => {
-        console.error("Emisores:", err);
-        if (!cancelled) setIssuers([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [org.id]);
+    setIssuerId((current) => {
+      if (issuers.some((i) => i.id === current)) return current;
+      const remembered = lastIssuerId();
+      return issuers.some((i) => i.id === remembered)
+        ? remembered
+        : issuers[0]?.id || "";
+    });
+  }, [issuers]);
 
   useEffect(() => {
     if (issuerId) prefillInvoiceData(issuerId);
@@ -161,7 +151,6 @@ export default function Invoform() {
   // logo; ver helpers/logo.js). undefined mientras se prepara.
   const [pdfSettings, setPdfSettings] = useState(undefined);
   useEffect(() => {
-    if (issuers === undefined) return;
     let cancelled = false;
     withOptimizedLogo(issuer).then((s) => {
       if (!cancelled) setPdfSettings(s);
@@ -286,9 +275,7 @@ export default function Invoform() {
       <PageHeader
         title="Nueva factura"
         description={
-          issuers === undefined ? (
-            " " // cargando ajustes: reservar la línea sin mostrar avisos
-          ) : issuers.length === 0 ? (
+          issuers.length === 0 ? (
             <>
               No hay empresa emisora.{" "}
               <Link href="/settings" className="text-accent hover:underline">

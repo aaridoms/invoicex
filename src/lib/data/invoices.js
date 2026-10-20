@@ -1,4 +1,4 @@
-import { buildInvoicePdf, invoiceFilename } from "@/app/helpers/generatePDF";
+import { invoiceFilename } from "@/app/helpers/invoiceMath";
 import { nextNumberCandidates } from "@/lib/numbering";
 import { getSupabase } from "@/lib/supabase/client";
 
@@ -6,6 +6,10 @@ import { getSupabase } from "@/lib/supabase/client";
 // invoice-pdfs/<org_id>/<invoice_id>.pdf
 
 const BUCKET = "invoice-pdfs";
+
+// jsPDF pesa ~150 kB: se carga solo al emitir o regenerar un PDF, para que
+// las pantallas que solo listan (inicio, historial) no lo descarguen
+const loadPdf = () => import("@/app/helpers/generatePDF");
 
 // Lo que se guarda del emisor dentro de cada factura (sin el logo, que
 // ocupa mucho; el PDF guardado ya lo lleva)
@@ -41,6 +45,29 @@ export async function listInvoices(orgId) {
   return data;
 }
 
+// Facturas desde una fecha ("aaaa-mm-dd") con los importes, para el panel
+export async function listInvoicesSince(orgId, since) {
+  const { data, error } = await getSupabase()
+    .from("invoices")
+    .select("id, number, issue_date, client, base, vat, total")
+    .eq("org_id", orgId)
+    .gte("issue_date", since)
+    .order("issue_date");
+  if (error) throw error;
+  return data;
+}
+
+export async function listRecentInvoices(orgId, limit = 5) {
+  const { data, error } = await getSupabase()
+    .from("invoices")
+    .select("id, number, issue_date, client, total")
+    .eq("org_id", orgId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data;
+}
+
 export async function getInvoice(id) {
   const { data, error } = await getSupabase()
     .from("invoices")
@@ -63,24 +90,19 @@ export async function invoiceNumberExists(issuerId, number) {
 
 // Siguiente número libre para un emisor
 export async function suggestNextInvoiceNumber(issuerId) {
-  const supabase = getSupabase();
-  const { data: last, error } = await supabase
+  // Una sola consulta: los últimos números del emisor. Basta para saltar
+  // huecos recientes; si aun así coincidiera con uno antiguo, la restricción
+  // única de la base de datos lo detecta al emitir.
+  const { data: recent, error } = await getSupabase()
     .from("invoices")
     .select("number")
     .eq("issuer_id", issuerId)
     .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(50);
   if (error) throw error;
 
-  const candidates = nextNumberCandidates(last?.number, new Date().getFullYear());
-  const { data: taken, error: takenError } = await supabase
-    .from("invoices")
-    .select("number")
-    .eq("issuer_id", issuerId)
-    .in("number", candidates);
-  if (takenError) throw takenError;
-  const used = new Set(taken.map((r) => r.number));
+  const candidates = nextNumberCandidates(recent[0]?.number, new Date().getFullYear());
+  const used = new Set(recent.map((r) => r.number));
   return candidates.find((c) => !used.has(c)) ?? candidates[candidates.length - 1];
 }
 
@@ -88,6 +110,7 @@ export async function suggestNextInvoiceNumber(issuerId) {
 // Devuelve { row, doc } para que el llamador descargue el PDF.
 export async function issueInvoice({ orgId, issuer, invoice }) {
   const supabase = getSupabase();
+  const { buildInvoicePdf } = await loadPdf();
   const { doc, calc } = buildInvoicePdf(invoice, issuer);
 
   const { data: row, error } = await supabase
@@ -148,6 +171,7 @@ export async function downloadInvoicePdf(id, currentIssuers = []) {
     if (!error) return { blob: data, filename };
   }
   const logo = currentIssuers.find((i) => i.id === row.issuer_id)?.logoDataUrl || "";
+  const { buildInvoicePdf } = await loadPdf();
   const { doc } = buildInvoicePdf(toInvoice(row), {
     ...row.issuer_snapshot,
     logoDataUrl: logo,

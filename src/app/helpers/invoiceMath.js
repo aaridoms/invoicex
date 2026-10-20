@@ -85,6 +85,16 @@ export const formatEuro = (n) => {
   return s.replace(/^(-?)(\d)(\d{3}),/, "$1$2.$3,");
 };
 
+// "aaaa-mm-dd" -> "dd/mm/aaaa" sin pasar por Date (evita desfases horarios)
+export const formatDate = (iso) => {
+  const [y, m, d] = String(iso || "").split("-");
+  return y && m && d ? `${d}/${m}/${y}` : "";
+};
+
+// Los números con "/" (p. ej. "A/015") no son válidos en nombres de archivo
+export const invoiceFilename = (nFactura) =>
+  `factura_${String(nFactura).replace(/[\\/:*?"<>|\s]+/g, "-")}.pdf`;
+
 export const formatQty = (n) =>
   new Intl.NumberFormat("es-ES", { maximumFractionDigits: 3 }).format(
     toNumber(n)

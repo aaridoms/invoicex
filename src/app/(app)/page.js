@@ -1,5 +1,9 @@
-import Invoform from "@/components/Invoform";
+import Dashboard from "@/components/dashboard/Dashboard";
 
-export default function Home() {
-  return <Invoform />;
+export const metadata = {
+  title: "Inicio | InvoiceX",
+};
+
+export default function HomePage() {
+  return <Dashboard />;
 }
