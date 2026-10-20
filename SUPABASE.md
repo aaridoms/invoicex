@@ -12,8 +12,12 @@ adelante, otro para producción.
 
 ## 2. Crear las tablas
 
-Abre **SQL Editor** → **New query**, pega el contenido de
-`supabase/migrations/20261020000000_init.sql` y pulsa **Run**.
+Abre **SQL Editor** → **New query** y ejecuta, **en orden y una sola vez
+cada una**, todas las migraciones de `supabase/migrations/` (pega el
+contenido y pulsa **Run**):
+
+1. `20261020000000_init.sql`: tablas, seguridad y almacenamiento.
+2. `20261021000000_settings_and_deletion.sql`: ajustes de facturación y borrado de cuenta.
 
 Alternativa por consola (requiere `npx supabase login`):
 
@@ -55,6 +59,8 @@ Reinicia `pnpm dev` después de crearlo. **Nunca** uses aquí la clave
    - **URI de redirección autorizados**: `https://<id-del-proyecto>.supabase.co/auth/v1/callback`
 4. Copia el *ID de cliente* y el *secreto*.
 5. En Supabase: **Authentication → Sign In / Providers → Google** → actívalo y pega ambos.
+6. Para poder **vincular Google a una cuenta existente** desde Configuración → Cuenta,
+   activa también **Allow manual linking** en esa misma pantalla.
 
 ## 6. Emails (confirmación y recuperar contraseña)
 

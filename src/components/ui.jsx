@@ -132,7 +132,7 @@ export function Toast({ message, type = "success" }) {
     type === "error"
       ? "border-danger/40 text-danger"
       : type === "warning"
-        ? "border-amber-400/40 text-amber-300"
+        ? "border-warning/40 text-warning"
         : "border-accent/40 text-accent";
   return (
     <div

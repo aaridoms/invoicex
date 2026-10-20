@@ -2,7 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Paleta (canales RGB para poder usar opacidad: bg-accent/10) */
+/* Paleta (canales RGB para poder usar opacidad: bg-accent/10).
+   El tema lo fija <html data-theme="dark|light|system"> antes de pintar
+   (script en app/layout.js). Oscuro es el valor por defecto. */
 :root {
   --bg: 10 10 12;
   --surface: 18 18 21;
@@ -13,9 +15,45 @@
   --accent: 52 211 153;
   --accent-fg: 6 32 22;
   --danger: 248 113 113;
+  --warning: 252 211 77;
   /* Barras de gráficos: validado (dataviz) para fondo oscuro, L 0.48–0.67 */
   --chart: 15 169 116;
   color-scheme: dark;
+}
+
+/* Tema claro. Se repite el bloque para "light" y para "system" cuando el
+   sistema está en claro (CSS no permite compartirlo entre ambos casos). */
+:root[data-theme="light"] {
+  --bg: 246 246 248;
+  --surface: 255 255 255;
+  --surface-2: 240 240 243;
+  --border: 224 224 230;
+  --fg: 24 24 27;
+  --muted: 100 100 112;
+  --accent: 4 120 87; /* texto sobre blanco ≥ 4.5:1 */
+  --accent-fg: 255 255 255;
+  --danger: 200 30 30;
+  --warning: 161 98 7;
+  /* Validado (dataviz) para fondo claro, L 0.43–0.77 */
+  --chart: 5 150 105;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] {
+    --bg: 246 246 248;
+    --surface: 255 255 255;
+    --surface-2: 240 240 243;
+    --border: 224 224 230;
+    --fg: 24 24 27;
+    --muted: 100 100 112;
+    --accent: 4 120 87;
+    --accent-fg: 255 255 255;
+    --danger: 200 30 30;
+    --warning: 161 98 7;
+    --chart: 5 150 105;
+    color-scheme: light;
+  }
 }
 
 @layer base {
@@ -66,8 +104,16 @@ input[type="number"] {
   -moz-appearance: textfield;
 }
 
-/* Icono del calendario visible en tema oscuro */
+/* Icono del calendario visible en tema oscuro (en claro, el original) */
 input[type="date"]::-webkit-calendar-picker-indicator {
   filter: invert(0.7);
   cursor: pointer;
+}
+:root[data-theme="light"] input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: none;
+}
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: none;
+  }
 }

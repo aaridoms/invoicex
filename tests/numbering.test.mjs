@@ -1,6 +1,30 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { nextNumberCandidates } from "../src/lib/numbering.js";
+import {
+  expandPrefix,
+  likePrefix,
+  nextNumberCandidates,
+  nextSeriesNumber,
+} from "../src/lib/numbering.js";
+
+test("expandPrefix sustituye el año", () => {
+  assert.equal(expandPrefix("{AAAA}-", 2026), "2026-");
+  assert.equal(expandPrefix("F{AA}/", 2026), "F26/");
+  assert.equal(expandPrefix("A/", 2026), "A/");
+});
+
+test("nextSeriesNumber continúa la serie y se reinicia con el año", () => {
+  const used = ["2026-0001", "2026-0007", "2025-0040", "ESPECIAL", "2026-07b"];
+  assert.equal(nextSeriesNumber("{AAAA}-", 4, 2026, used), "2026-0008");
+  assert.equal(nextSeriesNumber("{AAAA}-", 4, 2027, used), "2027-0001");
+  assert.equal(nextSeriesNumber("A/", 3, 2026, ["A/009", "A/010"]), "A/011");
+  assert.equal(nextSeriesNumber("{AAAA}-", 4, 2026, []), "2026-0001");
+});
+
+test("likePrefix escapa los comodines de LIKE", () => {
+  assert.equal(likePrefix("2026-"), "2026-%");
+  assert.equal(likePrefix("A_1%"), "A\\_1\\%%");
+});
 import { safeNext } from "../src/lib/safeNext.js";
 
 test("sin facturas previas empieza en AAAA-0001", () => {

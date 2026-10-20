@@ -1,7 +1,7 @@
 import SettingsForm from "@/components/SettingsForm";
 
 export const metadata = {
-  title: "Configuración | InvoiceX",
+  title: "Empresas | InvoiceX",
 };
 
 export default function SettingsPage() {

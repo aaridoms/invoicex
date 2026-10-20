@@ -16,7 +16,6 @@ import {
   Card,
   Field,
   Input,
-  PageHeader,
   Textarea,
   Toast,
 } from "./ui";
@@ -36,13 +35,6 @@ const EMPTY = {
 const MAX_LOGO_BYTES = 5 * 1024 * 1024;
 
 const NEW_ID = "nueva";
-
-const ROLE_LABEL = {
-  owner: "Dueño",
-  admin: "Administrador",
-  member: "Miembro",
-  accountant: "Gestor (solo lectura)",
-};
 
 const pickFields = (issuer) =>
   Object.fromEntries(
@@ -173,12 +165,7 @@ export default function SettingsForm() {
   };
 
   return (
-    <div className="mx-auto max-w-6xl px-8 py-7">
-      <PageHeader
-        title="Configuración"
-        description={`Empresas que emiten facturas en ${org.name}.`}
-      />
-
+    <div>
       <div className="grid items-start gap-6 grid-cols-[260px_minmax(0,1fr)]">
         <div className="space-y-5">
           <Card title="Empresas emisoras">
@@ -219,19 +206,6 @@ export default function SettingsForm() {
                 Nueva empresa
               </Button>
             ) : null}
-          </Card>
-
-          <Card title="Tu cuenta">
-            <dl className="space-y-2 text-sm">
-              <div>
-                <dt className="text-xs text-muted">Negocio</dt>
-                <dd>{org.name}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-muted">Tu rol</dt>
-                <dd>{ROLE_LABEL[role] || role}</dd>
-              </div>
-            </dl>
           </Card>
         </div>
 

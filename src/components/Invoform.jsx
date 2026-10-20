@@ -41,12 +41,12 @@ const todayISO = () => {
 let lineSeq = 0;
 // La primera línea lleva un id fijo para que coincida entre el render del
 // servidor y el del navegador (evita errores de hidratación).
-const newLine = (id = `l${Date.now()}_${lineSeq++}`) => ({
+const newLine = (id = `l${Date.now()}_${lineSeq++}`, iva = DEFAULT_VAT) => ({
   id,
   concepto: "",
   cantidad: "1",
   precio: "",
-  iva: DEFAULT_VAT,
+  iva,
 });
 
 const EMPTY_CLIENT = { nombre: "", cif: "", direccion: "", ciudad: "" };
@@ -55,13 +55,16 @@ export default function Invoform() {
   // Los emisores llegan ya cargados desde el layout (sin consulta extra)
   const { org, role, issuers } = useSession();
   const writable = canWrite(role);
+  // Valores por defecto y serie del negocio (Configuración → Facturación)
+  const defaults = org.billing;
+  const blankLine = (id) => newLine(id, defaults.defaultVat);
   const [issuerId, setIssuerId] = useState("");
   const [nFactura, setNFactura] = useState("");
   const [fecha, setFecha] = useState("");
   const [cliente, setCliente] = useState(EMPTY_CLIENT);
-  const [items, setItems] = useState(() => [newLine("line-1")]);
-  const [pricesIncludeVat, setPricesIncludeVat] = useState(false);
-  const [notas, setNotas] = useState("");
+  const [items, setItems] = useState(() => [blankLine("line-1")]);
+  const [pricesIncludeVat, setPricesIncludeVat] = useState(defaults.defaultPricesIncludeVat);
+  const [notas, setNotas] = useState(defaults.defaultNotes);
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState(null);
   const [previewData, setPreviewData] = useState(null);
@@ -80,11 +83,11 @@ export default function Invoform() {
     setFecha(todayISO());
     if (!forIssuerId) return;
     try {
-      setNFactura(await suggestNextInvoiceNumber(forIssuerId));
+      setNFactura(await suggestNextInvoiceNumber(forIssuerId, defaults));
     } catch (err) {
       console.error("Numeración:", err);
     }
-  }, []);
+  }, [defaults]);
 
   // Se elige el último emisor usado en este navegador (localStorage solo
   // existe en el cliente, por eso va en un efecto)
@@ -187,7 +190,7 @@ export default function Invoform() {
 
   const addItem = () => {
     focusNewLine.current = true;
-    setItems((list) => [...list, newLine()]);
+    setItems((list) => [...list, blankLine()]);
   };
 
   // Al añadir una línea, el cursor salta a su descripción
@@ -200,14 +203,14 @@ export default function Invoform() {
 
   const removeItem = (id) =>
     setItems((list) =>
-      list.length === 1 ? [newLine()] : list.filter((it) => it.id !== id)
+      list.length === 1 ? [blankLine()] : list.filter((it) => it.id !== id)
     );
 
   const resetForm = () => {
     setCliente(EMPTY_CLIENT);
-    setItems([newLine()]);
-    setNotas("");
-    setPricesIncludeVat(false);
+    setItems([blankLine()]);
+    setNotas(defaults.defaultNotes);
+    setPricesIncludeVat(defaults.defaultPricesIncludeVat);
     prefillInvoiceData(issuerId);
   };
 

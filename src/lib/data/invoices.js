@@ -1,5 +1,10 @@
 import { invoiceFilename } from "@/app/helpers/invoiceMath";
-import { nextNumberCandidates } from "@/lib/numbering";
+import {
+  expandPrefix,
+  likePrefix,
+  nextNumberCandidates,
+  nextSeriesNumber,
+} from "@/lib/numbering";
 import { getSupabase } from "@/lib/supabase/client";
 
 // Facturas emitidas: filas en la tabla invoices + PDF en el bucket
@@ -89,10 +94,32 @@ export async function invoiceNumberExists(issuerId, number) {
 }
 
 // Siguiente número libre para un emisor
-export async function suggestNextInvoiceNumber(issuerId) {
-  // Una sola consulta: los últimos números del emisor. Basta para saltar
-  // huecos recientes; si aun así coincidiera con uno antiguo, la restricción
-  // única de la base de datos lo detecta al emitir.
+// series: { numberPrefix, numberDigits } de la organización (opcional)
+export async function suggestNextInvoiceNumber(issuerId, series) {
+  const year = new Date().getFullYear();
+
+  // Con serie configurada (Configuración → Facturación): una consulta por
+  // los números del emisor con ese prefijo y se continúa el mayor.
+  if (series) {
+    const prefix = expandPrefix(series.numberPrefix, year);
+    const { data, error } = await getSupabase()
+      .from("invoices")
+      .select("number")
+      .eq("issuer_id", issuerId)
+      .like("number", likePrefix(prefix))
+      .order("created_at", { ascending: false })
+      .limit(500);
+    if (error) throw error;
+    return nextSeriesNumber(
+      series.numberPrefix,
+      series.numberDigits,
+      year,
+      data.map((r) => r.number)
+    );
+  }
+
+  // Sin serie: se continúa el último número usado, sea cual sea su formato.
+  // Si coincidiera con uno antiguo, la restricción única lo detecta al emitir.
   const { data: recent, error } = await getSupabase()
     .from("invoices")
     .select("number")
@@ -101,7 +128,7 @@ export async function suggestNextInvoiceNumber(issuerId) {
     .limit(50);
   if (error) throw error;
 
-  const candidates = nextNumberCandidates(recent[0]?.number, new Date().getFullYear());
+  const candidates = nextNumberCandidates(recent[0]?.number, year);
   const used = new Set(recent.map((r) => r.number));
   return candidates.find((c) => !used.has(c)) ?? candidates[candidates.length - 1];
 }

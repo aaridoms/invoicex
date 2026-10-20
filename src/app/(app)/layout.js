@@ -2,6 +2,7 @@ import SessionProvider from "@/components/SessionProvider";
 import SetupNotice from "@/components/SetupNotice";
 import Sidebar from "@/components/Sidebar";
 import { issuerFromRow } from "@/lib/data/issuers";
+import { ORG_COLUMNS, orgFromRow } from "@/lib/data/org";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
@@ -24,20 +25,33 @@ export default async function AppLayout({ children }) {
 
   // Una sola consulta: membresía + organización + sus emisores.
   // De momento cada usuario trabaja con su primera organización.
-  const { data: membership } = await supabase
+  const { data: membership, error } = await supabase
     .from("memberships")
-    .select("role, organizations (id, name, issuers (*))")
+    .select(`role, organizations (${ORG_COLUMNS}, issuers (*))`)
     .eq("user_id", claims.sub)
     .order("created_at")
     .order("created_at", { referencedTable: "organizations.issuers" })
     .limit(1)
     .maybeSingle();
+  // Un fallo de la consulta (p. ej. una migración sin aplicar) no debe
+  // confundirse con "no tienes negocio": eso mandaría a /onboarding y de
+  // vuelta aquí en bucle. Se muestra el error.
+  if (error) {
+    throw new Error(
+      `No se pudieron cargar los datos del negocio (${error.message}). ` +
+        "Si acabas de actualizar, comprueba que has aplicado las migraciones de supabase/migrations."
+    );
+  }
   if (!membership?.organizations) redirect("/onboarding");
 
-  const { issuers = [], ...org } = membership.organizations;
+  const { issuers = [], ...orgRow } = membership.organizations;
   const session = {
-    user: { id: claims.sub, email: claims.email },
-    org,
+    user: {
+      id: claims.sub,
+      email: claims.email,
+      name: claims.user_metadata?.full_name || "",
+    },
+    org: orgFromRow(orgRow),
     role: membership.role,
     issuers: issuers.map(issuerFromRow),
   };
