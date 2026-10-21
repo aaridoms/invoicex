@@ -16,7 +16,6 @@ import {
   IconPlus,
   IconReceipt,
   IconShare,
-  IconUsers,
 } from "../icons";
 import { canWrite, useSession } from "../SessionProvider";
 import { ButtonLink, Card, PageHeader } from "../ui";
@@ -60,11 +59,6 @@ const COMING_SOON = [
     Icon: IconReceipt,
     title: "Gastos y facturas recibidas",
     text: "Sube las facturas de proveedores y extrae los datos automáticamente.",
-  },
-  {
-    Icon: IconUsers,
-    title: "Clientes y proveedores",
-    text: "Fichas guardadas para rellenar facturas en un clic.",
   },
   {
     Icon: IconShare,

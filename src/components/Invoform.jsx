@@ -16,6 +16,9 @@ import {
   toInvoice,
 } from "@/lib/data/invoices";
 import { lastIssuerId, rememberIssuer } from "@/lib/data/issuers";
+import { clientKey } from "@/lib/contacts";
+import { createContact, listContacts } from "@/lib/data/contacts";
+import ClientField from "./invoice/ClientField";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { IconPlus, IconTrash } from "./icons";
@@ -62,6 +65,20 @@ export default function Invoform() {
   const [nFactura, setNFactura] = useState("");
   const [fecha, setFecha] = useState("");
   const [cliente, setCliente] = useState(EMPTY_CLIENT);
+  const [clientId, setClientId] = useState(null); // ficha enlazada
+  const [saveClient, setSaveClient] = useState(true); // crear ficha al emitir
+  const [contacts, setContacts] = useState([]);
+
+  // Clientes guardados para el autocompletado
+  useEffect(() => {
+    let cancelled = false;
+    listContacts(org.id)
+      .then((list) => !cancelled && setContacts(list))
+      .catch((err) => console.error("Contactos:", err));
+    return () => {
+      cancelled = true;
+    };
+  }, [org.id]);
   const [items, setItems] = useState(() => [blankLine("line-1")]);
   const [pricesIncludeVat, setPricesIncludeVat] = useState(defaults.defaultPricesIncludeVat);
   const [notas, setNotas] = useState(defaults.defaultNotes);
@@ -116,6 +133,7 @@ export default function Invoform() {
         const src = toInvoice(row);
         setIssuerId(row.issuer_id);
         setCliente({ ...EMPTY_CLIENT, ...src.cliente });
+        setClientId(row.client_id || null);
         setItems(
           src.items.length
             ? src.items.map((it) => ({ ...newLine(), ...it, id: newLine().id }))
@@ -206,8 +224,42 @@ export default function Invoform() {
       list.length === 1 ? [blankLine()] : list.filter((it) => it.id !== id)
     );
 
+  // Al elegir una ficha se copian sus datos a la factura y queda enlazada
+  const selectContact = (c) => {
+    setCliente({ nombre: c.name, cif: c.taxId, direccion: c.address, ciudad: c.city });
+    setClientId(c.id);
+  };
+
+  // Ficha a la que enlazar la factura al emitirla: la elegida; o, si se
+  // pidió guardar el cliente, una existente con el mismo NIF/nombre o una
+  // nueva. Si falla, la factura se emite igualmente sin enlazar.
+  const resolveClientId = async () => {
+    if (clientId) return clientId;
+    if (!saveClient || !cliente.nombre.trim()) return null;
+    const draft = {
+      name: cliente.nombre,
+      taxId: cliente.cif,
+      address: cliente.direccion,
+      city: cliente.ciudad,
+      isClient: true,
+      isSupplier: false,
+    };
+    const existing = contacts.find((c) => clientKey(c) === clientKey(draft));
+    if (existing) return existing.id;
+    try {
+      const created = await createContact(org.id, draft);
+      setContacts((list) => [...list, created]);
+      return created.id;
+    } catch (err) {
+      console.error("Guardar cliente:", err);
+      return null;
+    }
+  };
+
   const resetForm = () => {
     setCliente(EMPTY_CLIENT);
+    setClientId(null);
+    setSaveClient(true);
     setItems([blankLine()]);
     setNotas(defaults.defaultNotes);
     setPricesIncludeVat(defaults.defaultPricesIncludeVat);
@@ -247,6 +299,7 @@ export default function Invoform() {
         orgId: org.id,
         issuer: await withOptimizedLogo(issuer),
         invoice,
+        clientId: await resolveClientId(),
       });
       doc.save(filename);
       notify(`Factura guardada y descargada: ${filename}`);
@@ -378,14 +431,45 @@ export default function Invoform() {
             </Card>
           </div>
 
-          <Card title="Cliente">
+          <Card
+            title="Cliente"
+            actions={
+              clientId ? (
+                <span className="flex items-center gap-2 text-xs">
+                  <span className="text-accent">Cliente guardado</span>
+                  <button
+                    type="button"
+                    onClick={() => setClientId(null)}
+                    className="text-muted hover:text-fg"
+                  >
+                    Desvincular
+                  </button>
+                </span>
+              ) : cliente.nombre.trim() && writable ? (
+                <label className="flex cursor-pointer select-none items-center gap-2 text-xs text-muted">
+                  <input
+                    type="checkbox"
+                    checked={saveClient}
+                    onChange={(e) => setSaveClient(e.target.checked)}
+                    className="h-3.5 w-3.5 accent-[rgb(var(--accent))]"
+                  />
+                  Guardar en mis clientes
+                </label>
+              ) : null
+            }
+          >
             <div className="grid grid-cols-2 gap-3">
               <Field label="Nombre o razón social" htmlFor="cliente">
-                <Input
+                <ClientField
                   id="cliente"
                   value={cliente.nombre}
-                  onChange={updateCliente("nombre")}
-                  placeholder="Empresa S.L."
+                  contacts={contacts}
+                  linked={!!clientId}
+                  onType={(nombre) => {
+                    setCliente((c) => ({ ...c, nombre }));
+                    setClientId(null); // otro nombre: ya no es la ficha elegida
+                  }}
+                  onSelect={selectContact}
                 />
               </Field>
               <Field label="NIF/CIF" htmlFor="cif">

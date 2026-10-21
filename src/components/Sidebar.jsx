@@ -19,13 +19,13 @@ import { useSession } from "./SessionProvider";
 const NAV = [
   { href: "/", label: "Inicio", Icon: IconHome },
   { href: "/invoices", label: "Facturas", Icon: IconFile },
+  { href: "/contacts", label: "Clientes", Icon: IconUsers },
   { href: "/settings", label: "Configuración", Icon: IconSettings },
 ];
 
 // Secciones previstas: se muestran para que se vea hacia dónde va la app
 const COMING_SOON = [
   { label: "Gastos", Icon: IconReceipt },
-  { label: "Clientes", Icon: IconUsers },
   { label: "Exportar al gestor", Icon: IconShare },
 ];
 

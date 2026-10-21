@@ -135,7 +135,8 @@ export async function suggestNextInvoiceNumber(issuerId, series) {
 
 // Emite una factura: guarda la fila, sube el PDF y lo enlaza.
 // Devuelve { row, doc } para que el llamador descargue el PDF.
-export async function issueInvoice({ orgId, issuer, invoice }) {
+// clientId: ficha de cliente enlazada (opcional)
+export async function issueInvoice({ orgId, issuer, invoice, clientId = null }) {
   const supabase = getSupabase();
   const { buildInvoicePdf } = await loadPdf();
   const { doc, calc } = buildInvoicePdf(invoice, issuer);
@@ -149,6 +150,7 @@ export async function issueInvoice({ orgId, issuer, invoice }) {
       issue_date: invoice.fecha,
       issuer_snapshot: issuerSnapshot(issuer),
       client: invoice.cliente,
+      client_id: clientId,
       items: calc.lines.map(({ id, concepto, cantidad, precio, iva }) => ({
         id,
         concepto,
