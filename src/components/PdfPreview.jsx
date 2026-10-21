@@ -9,21 +9,7 @@ import { useEffect, useRef, useState } from "react";
 // un Web Worker, así que no bloquea el teclado. Si llegan cambios mientras
 // se está pintando, solo se pinta la última versión.
 
-let pdfjsPromise = null;
-const loadPdfjs = () => {
-  pdfjsPromise ??= import("pdfjs-dist/build/pdf").then(async (pdfjs) => {
-    if (typeof Worker !== "undefined") {
-      pdfjs.GlobalWorkerOptions.workerPort = new Worker(
-        new URL("../workers/pdf.worker.js", import.meta.url)
-      );
-    } else {
-      // Sin Web Workers: pdf.js trabaja en el hilo principal
-      await import("pdfjs-dist/build/pdf.worker.entry");
-    }
-    return pdfjs;
-  });
-  return pdfjsPromise;
-};
+import { loadPdfjs } from "@/lib/pdfjs";
 
 async function renderPdf(data, width) {
   const pdfjs = await loadPdfjs();

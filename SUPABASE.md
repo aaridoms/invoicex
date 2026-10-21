@@ -19,6 +19,7 @@ contenido y pulsa **Run**):
 1. `20261020000000_init.sql`: tablas, seguridad y almacenamiento.
 2. `20261021000000_settings_and_deletion.sql`: ajustes de facturación y borrado de cuenta.
 3. `20261022000000_contacts.sql`: clientes y proveedores.
+4. `20261023000000_expenses.sql`: gastos (facturas recibidas) y sus archivos.
 
 Alternativa por consola (requiere `npx supabase login`):
 

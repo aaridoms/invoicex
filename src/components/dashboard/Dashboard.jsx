@@ -1,6 +1,7 @@
 "use client";
 
 import { formatDate, formatEuro } from "@/app/helpers/invoiceMath";
+import { listExpensesSince } from "@/lib/data/expenses";
 import { listInvoicesSince, listRecentInvoices } from "@/lib/data/invoices";
 import {
   dashboardSince,
@@ -57,8 +58,8 @@ function StatTile({ label, value, hint, delta }) {
 const COMING_SOON = [
   {
     Icon: IconReceipt,
-    title: "Gastos y facturas recibidas",
-    text: "Sube las facturas de proveedores y extrae los datos automáticamente.",
+    title: "Datos con IA",
+    text: "Extracción automática también desde fotos y facturas escaneadas.",
   },
   {
     Icon: IconShare,
@@ -71,6 +72,7 @@ export default function Dashboard() {
   const { org, role } = useSession();
   const [rows, setRows] = useState(null);
   const [recent, setRecent] = useState([]);
+  const [expenseRows, setExpenseRows] = useState([]);
   const [error, setError] = useState(false);
   const [chartAsTable, setChartAsTable] = useState(false);
   // Fecha fija durante la visita para que todos los bloques cuadren. Se toma
@@ -85,11 +87,14 @@ export default function Dashboard() {
     Promise.all([
       listInvoicesSince(org.id, dashboardSince(now)),
       listRecentInvoices(org.id, 5),
+      // Si los gastos fallan (p. ej. migración sin aplicar) el panel sigue
+      listExpensesSince(org.id, dashboardSince(now)).catch(() => []),
     ])
-      .then(([since, latest]) => {
+      .then(([since, latest, expenses]) => {
         if (cancelled) return;
         setRows(since);
         setRecent(latest);
+        setExpenseRows(expenses);
       })
       .catch((err) => {
         console.error("Panel de inicio:", err);
@@ -104,10 +109,12 @@ export default function Dashboard() {
     if (!rows || !now) return null;
     return {
       summary: summarize(rows, now),
+      // Mismos cálculos sobre los gastos: IVA soportado del trimestre
+      expenses: summarize(expenseRows, now),
       series: monthlySeries(rows, now, 12),
       clients: topClients(rows, now, 5),
     };
-  }, [rows, now]);
+  }, [rows, expenseRows, now]);
 
   const s = data?.summary;
   const year = now?.getFullYear() ?? "";
@@ -159,9 +166,13 @@ export default function Dashboard() {
           hint={s ? `${s.year.count} ${s.year.count === 1 ? "factura" : "facturas"}` : " "}
         />
         <StatTile
-          label={`IVA repercutido · ${s?.quarter.label ?? ""}`}
-          value={s ? formatEuro(s.quarter.vat) : dash}
-          hint="El que cobras y declaras en el 303"
+          label={`IVA a liquidar · ${s?.quarter.label ?? ""}`}
+          value={s ? formatEuro(s.quarter.vat - data.expenses.quarter.vat) : dash}
+          hint={
+            s
+              ? `Repercutido ${formatEuro(s.quarter.vat)} − soportado ${formatEuro(data.expenses.quarter.vat)}`
+              : " "
+          }
         />
         <StatTile
           label={`Ticket medio ${year}`}

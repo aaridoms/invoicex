@@ -7,6 +7,7 @@ import { Input } from "../ui";
 // Campo "Nombre o razón social" con autocompletado de clientes guardados.
 // Patrón combobox de ARIA: flechas para moverse, Enter para elegir y
 // Escape para cerrar. Escribir un nombre distinto suelta la ficha enlazada.
+// kind: "client" (facturas emitidas) o "supplier" (gastos)
 export default function ClientField({
   id,
   value,
@@ -14,6 +15,8 @@ export default function ClientField({
   linked,
   onType,
   onSelect,
+  kind = "client",
+  placeholder = "Empresa S.L.",
 }) {
   const listId = useId();
   const [open, setOpen] = useState(false);
@@ -21,7 +24,7 @@ export default function ClientField({
 
   const suggestions =
     open && value.trim() && !linked
-      ? searchContacts(contacts, value, { kind: "client", limit: 6 })
+      ? searchContacts(contacts, value, { kind, limit: 6 })
       : [];
   const showList = suggestions.length > 0;
 
@@ -59,7 +62,7 @@ export default function ClientField({
         aria-controls={listId}
         aria-activedescendant={showList ? `${listId}-${active}` : undefined}
         autoComplete="off"
-        placeholder="Empresa S.L."
+        placeholder={placeholder}
         onChange={(e) => {
           onType(e.target.value);
           setOpen(true);
